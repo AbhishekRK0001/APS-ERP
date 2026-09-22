@@ -1,0 +1,54 @@
+const Teacher = require("../models/Teacher");
+
+function errorStatus(err) {
+  return err.name === "ValidationError" || err.name === "CastError" ? 400 : 500;
+}
+
+exports.createTeacher = async (req, res) => {
+  try {
+    const teacher = await Teacher.create(req.body);
+    res.status(201).json(teacher);
+  } catch (err) {
+    res.status(errorStatus(err)).json({ error: err.message });
+  }
+};
+
+exports.getTeachers = async (req, res) => {
+  try {
+    const teachers = await Teacher.find().populate("subjects");
+    res.json(teachers);
+  } catch (err) {
+    res.status(errorStatus(err)).json({ error: err.message });
+  }
+};
+
+exports.updateTeacher = async (req, res) => {
+  try {
+    const teacher = await Teacher.findByIdAndUpdate(req.params.id, req.body, {
+      new: true,
+      runValidators: true,
+    });
+
+    if (!teacher) {
+      return res.status(404).json({ error: "Teacher not found" });
+    }
+
+    res.json(teacher);
+  } catch (err) {
+    res.status(errorStatus(err)).json({ error: err.message });
+  }
+};
+
+exports.deleteTeacher = async (req, res) => {
+  try {
+    const teacher = await Teacher.findByIdAndDelete(req.params.id);
+
+    if (!teacher) {
+      return res.status(404).json({ error: "Teacher not found" });
+    }
+
+    res.json({ message: "Teacher deleted" });
+  } catch (err) {
+    res.status(errorStatus(err)).json({ error: err.message });
+  }
+};

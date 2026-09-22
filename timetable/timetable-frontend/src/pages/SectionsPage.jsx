@@ -1,0 +1,201 @@
+import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import API from "../api/api";
+import Modal from "../components/Modal";
+
+export default function SectionsPage() {
+  const navigate = useNavigate();
+  const [sections, setSections] = useState([]);
+  const [name, setName] = useState("");
+  const [semester, setSemester] = useState("");
+  const [classroom, setClassroom] = useState("");
+  const [editing, setEditing] = useState(null);
+
+  const load = async () => {
+    const res = await API.get("/sections");
+    setSections(res.data);
+  };
+
+  useEffect(() => {
+    let active = true;
+
+    API.get("/sections")
+      .then((res) => {
+        if (active) setSections(res.data);
+      })
+      .catch(() => {
+        if (active) alert("Failed to load sections");
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const add = async () => {
+    const parsedSemester = Number(semester);
+
+    if (!name.trim() || !classroom.trim()) {
+      alert("Name and classroom are required");
+      return;
+    }
+
+    if (!Number.isInteger(parsedSemester) || parsedSemester < 1 || parsedSemester > 8) {
+      alert("Semester must be an integer from 1 to 8");
+      return;
+    }
+
+    try {
+      await API.post("/sections", {
+        name: name.trim(),
+        semester: parsedSemester,
+        classroom: classroom.trim(),
+      });
+      setName("");
+      setSemester("");
+      setClassroom("");
+      await load();
+    } catch {
+      alert("Failed to add section");
+    }
+  };
+
+  const update = async () => {
+    const parsedSemester = Number(editing?.semester);
+
+    if (!editing?.name?.trim() || !editing?.classroom?.trim()) {
+      alert("Name and classroom are required");
+      return;
+    }
+
+    if (!Number.isInteger(parsedSemester) || parsedSemester < 1 || parsedSemester > 8) {
+      alert("Semester must be an integer from 1 to 8");
+      return;
+    }
+
+    try {
+      await API.put(`/sections/${editing._id}`, {
+        name: editing.name.trim(),
+        semester: parsedSemester,
+        classroom: editing.classroom.trim(),
+      });
+      setEditing(null);
+      await load();
+    } catch {
+      alert("Failed to update section");
+    }
+  };
+
+  const del = async (id) => {
+    try {
+      await API.delete(`/sections/${id}`);
+      await load();
+    } catch {
+      alert("Failed to delete section");
+    }
+  };
+
+  return (
+    <div className="page-shell content-narrow">
+      <div className="page-actions">
+        <button className="btn-secondary" onClick={() => navigate("/")}>Back to Home</button>
+      </div>
+
+      <div className="card">
+        <div className="card-header">
+          <h2>Manage Sections</h2>
+          <p className="muted">Each section requires a semester and classroom.</p>
+        </div>
+
+        <div className="form-grid">
+          <label className="form-field">
+            <span>Section Name</span>
+            <input value={name} onChange={e=>setName(e.target.value)} placeholder="Enter section name"/>
+          </label>
+          <label className="form-field">
+            <span>Semester</span>
+            <select value={semester} onChange={e=>setSemester(e.target.value)}>
+              <option value="">Select semester</option>
+              {[1,2,3,4,5,6,7,8].map((value) => (
+                <option key={value} value={value}>Semester {value}</option>
+              ))}
+            </select>
+          </label>
+          <label className="form-field">
+            <span>Classroom</span>
+            <input
+              value={classroom}
+              onChange={e=>setClassroom(e.target.value)}
+              placeholder="Enter classroom"
+            />
+          </label>
+        </div>
+        <div className="form-actions">
+          <button onClick={add}>Add Section</button>
+        </div>
+
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr><th>#</th><th>Name</th><th>Semester</th><th>Classroom</th><th>Actions</th></tr>
+            </thead>
+            <tbody>
+              {sections.length === 0 ? (
+                <tr>
+                  <td colSpan="5">
+                    <div className="empty-state">No sections available yet.</div>
+                  </td>
+                </tr>
+              ) : (
+                sections.map((s,i)=>(
+                  <tr key={s._id}>
+                    <td>{i+1}</td>
+                    <td>{s.name}</td>
+                    <td>{s.semester}</td>
+                    <td>{s.classroom}</td>
+                    <td>
+                      <div className="button-row">
+                        <button className="btn-secondary" onClick={()=>setEditing(s)}>Edit</button>
+                        <button className="btn-danger" onClick={()=>del(s._id)}>Delete</button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <Modal isOpen={!!editing} onClose={()=>setEditing(null)}>
+          <h3>Edit Section</h3>
+          <label className="form-field">
+            <span>Section Name</span>
+            <input
+              value={editing?.name || ""}
+              onChange={(e)=>setEditing({...editing, name:e.target.value})}
+            />
+          </label>
+          <label className="form-field">
+            <span>Semester</span>
+            <select
+              value={editing?.semester || ""}
+              onChange={(e)=>setEditing({...editing, semester:e.target.value})}
+            >
+              {[1,2,3,4,5,6,7,8].map((value) => (
+                <option key={value} value={value}>Semester {value}</option>
+              ))}
+            </select>
+          </label>
+          <label className="form-field">
+            <span>Classroom</span>
+            <input
+              value={editing?.classroom || ""}
+              onChange={(e)=>setEditing({...editing, classroom:e.target.value})}
+            />
+          </label>
+          <button onClick={update}>Save</button>
+        </Modal>
+      </div>
+    </div>
+  );
+}
