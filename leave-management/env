@@ -1,0 +1,3 @@
+MONGO_URI=mongodb+srv://aps123:HVubD67UWQVK2ilT@leave123.bfxaowu.mongodb.net/leave-management?retryWrites=true&w=majority
+JWT_SECRET=919841b106a46b7aee8273974a120e95e16ff4b385ea7de4
+PORT=5000
