@@ -1,0 +1,147 @@
+SUPER_ADMIN → CREATE USER → ACTIVATE → LOGIN → RBAC TEST → TOKEN FLOW
+SET TOKEN IN POSTMAN (IMPORTANT)
+
+Copy your:
+accessToken
+In Postman:
+
+Go to Headers:
+
+Authorization: Bearer <PASTE_ACCESS_TOKEN>
+
+Must include Bearer exactly.
+
+2. CREATE STUDENT ACCOUNT
+Request
+POST http://localhost:3000/api/users/create
+
+Headers
+Authorization: Bearer <accessToken>
+Content-Type: application/json
+
+Body
+{
+  "usn": "STU001",
+  "email": "student@test.com",
+  "role": "STUDENT",
+  "name": "Abhi",
+  "department": "CSE",
+  "section": "A"
+}
+
+Expected Response
+{
+  "message": "User created successfully. OTP sent.",
+  "userId": "..."
+}
+
+
+
+🔴 Important
+
+Check your terminal:
+
+OTP (dev only): 123456
+👉 Copy this OTP
+
+
+
+
+3. ACTIVATE ACCOUNT (OTP FLOW)
+Request
+POST http://localhost:3000/api/otp/verify
+
+Body
+{
+  "usn": "STU001",
+  "otp": "123456",
+  "newPassword": "Student@123"
+}
+
+Expected Response
+{
+  "message": "Account activated successfully"
+}
+
+
+
+4. LOGIN AS STUDENT
+Request
+POST http://localhost:3000/api/auth/login
+
+
+Body
+{
+  "identifier": "STU001",
+  "password": "Student@123"
+}
+
+
+Expected
+{
+  "accessToken": "...",
+  "refreshToken": "...",
+  "user": {
+    "role": "STUDENT"
+  }
+}
+
+
+5. RBAC TEST (VERY IMPORTANT)
+
+Now use student token.
+
+Try:
+POST /api/users/create
+
+
+Expected
+{
+  "message": "Access denied"
+}
+
+
+
+6. REFRESH TOKEN TEST
+Request
+POST http://localhost:3000/api/token/refresh
+
+
+Body
+{
+  "refreshToken": "<student_refresh_token>"
+}
+
+Expected
+{
+  "accessToken": "new_token"
+}
+
+
+
+7. LOGOUT TEST
+Request
+POST http://localhost:3000/api/token/logout
+
+Body
+{
+  "refreshToken": "<student_refresh_token>"
+}
+
+
+Expected
+{
+  "message": "Logged out successfully"
+}
+
+
+8. TEST AFTER LOGOUT
+
+Try refresh again:
+
+POST /api/token/refresh
+ 
+Expected
+{
+  "message": "Invalid refresh token"
+}
