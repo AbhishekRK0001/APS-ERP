@@ -130,6 +130,7 @@ export function Registration({ onBack }) {
           <label className="field">
             <span>Requested role</span>
             <select
+              aria-label="Requested role"
               name="role"
               value={role}
               onChange={(e) => setRole(e.target.value)}
@@ -144,6 +145,7 @@ export function Registration({ onBack }) {
           <label className="field">
             <span>Department</span>
             <select
+              aria-label="Department"
               name="departmentId"
               required
               value={dept}
@@ -168,6 +170,7 @@ export function Registration({ onBack }) {
               <label className="field">
                 <span>Semester</span>
                 <select
+                  aria-label="Semester"
                   name="currentSemester"
                   value={semester}
                   onChange={(e) => setSemester(e.target.value)}
@@ -183,6 +186,7 @@ export function Registration({ onBack }) {
                 <span>Section</span>
                 <select
                   key={`${dept}-${semester}`}
+                  aria-label="Section"
                   name="sectionId"
                   required
                   disabled={!sections.length}

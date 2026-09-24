@@ -75,7 +75,9 @@ export function Field({ label: caption, children, ...props }) {
 export function Select({ label: caption, children, ...props }) {
   return (
     <Field label={caption}>
-      <select {...props}>{children}</select>
+      <select aria-label={caption} {...props}>
+        {children}
+      </select>
     </Field>
   );
 }
