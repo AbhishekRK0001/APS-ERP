@@ -53,6 +53,7 @@ before(
     for (const [key, role, dept] of [
       ["admin", "super_admin", "cse"],
       ["teacher", "teacher", "cse"],
+      ["classTeacher", "class_teacher", "cse"],
       ["sub1", "teacher", "cse"],
       ["sub2", "teacher", "cse"],
       ["hod", "hod", "cse"],
@@ -197,46 +198,64 @@ test("generated previews save through the unified API and feed the staff schedul
   );
 });
 test("one application covers all periods; races have one winner; department approval is enforced", async () => {
-  const r = await agents.teacher
+  const r = await agents.admin
     .post("/api/substitutes/request")
-    .send({ startDate: day, endDate: day, leaveType: "casual" });
+    .send({
+      teacherId: String(users.teacher._id),
+      startDate: day,
+      endDate: day,
+      leaveType: "casual",
+    });
   assert.equal(r.status, 201, r.text);
   leaveId = r.body.leave._id;
   requestIds = r.body.requests.map((x) => x._id);
   assert.equal(requestIds.length, 2);
-  const duplicate = await agents.teacher
+  const duplicate = await agents.admin
     .post("/api/substitutes/request")
-    .send({ startDate: day, endDate: day, leaveType: "casual" });
+    .send({
+      teacherId: String(users.teacher._id),
+      startDate: day,
+      endDate: day,
+      leaveType: "casual",
+    });
   assert.equal(duplicate.body.leave._id, leaveId);
   assert.equal(
     (
-      await agents.teacher
+      await agents.admin
         .patch(`/api/leaves/${leaveId}/details`)
-        .send({ reason: "Family commitment" })
+        .send({
+          teacherId: String(users.teacher._id),
+          reason: "Family commitment",
+        })
     ).status,
     409,
   );
   const race = await Promise.all(
     ["sub1", "sub2"].map((k) =>
-      agents[k].patch(`/api/substitutes/${requestIds[0]}/accept`).send({}),
+      agents.admin
+        .patch(`/api/substitutes/${requestIds[0]}/accept`)
+        .send({ teacherId: String(users[k]._id) }),
     ),
   );
   assert.deepEqual(race.map((x) => x.status).sort(), [200, 409]);
   const winner = race[0].status === 200 ? "sub1" : "sub2";
   assert.equal(
     (
-      await agents[winner]
+      await agents.admin
         .patch(`/api/substitutes/${requestIds[1]}/accept`)
-        .send({})
+        .send({ teacherId: String(users[winner]._id) })
     ).status,
     200,
   );
   assert.equal((await agents.sub1.get("/api/substitutes/my")).body.length, 0);
   assert.equal(
     (
-      await agents.teacher
+      await agents.admin
         .patch(`/api/leaves/${leaveId}/details`)
-        .send({ reason: "Family commitment" })
+        .send({
+          teacherId: String(users.teacher._id),
+          reason: "Family commitment",
+        })
     ).status,
     200,
   );
@@ -273,16 +292,17 @@ test("one application covers all periods; races have one winner; department appr
   );
 });
 test("notice approval, audience isolation, and private attachments use shared identity", async () => {
-  const upload = await agents.teacher
+  const upload = await agents.hod
     .post("/api/uploads/notices")
     .attach("file", Buffer.from("%PDF-1.4\n%%EOF"), "test.pdf");
   assert.equal(upload.status, 201, upload.text);
-  const r = await agents.teacher.post("/api/notices").send({
+  const r = await agents.hod.post("/api/notices").send({
     title: "Midterm",
     description: "Prepare chapters 1 and 2.",
     scope: "SECTION",
     sectionId: String(section._id),
     type: "TEST",
+    requestApproval: true,
     attachments: [upload.body],
   });
   assert.equal(r.status, 201, r.text);
@@ -298,7 +318,7 @@ test("notice approval, audience isolation, and private attachments use shared id
   );
   assert.equal(
     (
-      await agents.hod
+      await agents.principal
         .post(`/api/notices/${id}/approval`)
         .send({ action: "APPROVE" })
     ).status,
@@ -377,4 +397,274 @@ test("frozen users lose access across modules immediately", async () => {
     { $set: { status: "FROZEN" } },
   );
   assert.equal((await agents.otherStudent.get("/api/notices")).status, 401);
+});
+
+test("teachers and class teachers have read-only campus access, including direct API calls", async () => {
+  for (const role of ["teacher", "classTeacher", "student"]) {
+    for (const [method, url] of [
+      ["post", "/api/users"],
+      ["post", "/api/departments"],
+      ["post", "/api/sections"],
+      ["post", "/api/subjects"],
+      ["post", "/api/teachers"],
+      ["post", "/api/notices"],
+      ["post", "/api/uploads/notices"],
+      ["post", "/api/substitutes/request"],
+      ["patch", `/api/leaves/${leaveId}/details`],
+      ["patch", `/api/leaves/${leaveId}/approve`],
+      ["patch", `/api/notices/${new mongoose.Types.ObjectId()}`],
+      ["post", "/api/academic-cycle/advance"],
+    ]) {
+      const r = await agents[role][method](url).send({});
+      assert.equal(r.status, 403, `${role} ${url}: ${r.text}`);
+    }
+    assert.equal((await agents[role].get("/api/users")).status, 403);
+    assert.equal((await agents[role].get("/api/schedule/my")).status, 200);
+  }
+  assert.equal(
+    (await agents.teacher.get(`/api/leaves/my?teacherId=${users.sub1._id}`))
+      .status,
+    403,
+  );
+  assert.equal(
+    (await agents.otherHod.get(`/api/leaves/my?teacherId=${users.teacher._id}`))
+      .status,
+    403,
+  );
+  assert.equal(
+    (await agents.hod.get(`/api/leaves/my?teacherId=${users.teacher._id}`))
+      .status,
+    200,
+  );
+});
+test("account requests require admin approval before OTP activation and cannot request privileged roles", async () => {
+  const body = {
+    name: "Applicant",
+    email: "applicant@test.invalid",
+    role: "student",
+    departmentId: String(departments.cse._id),
+    sectionId: String(section._id),
+    currentSemester: 1,
+    status: "ACTIVE",
+    password: "Attacker-supplied-password",
+  };
+  assert.equal(
+    (
+      await request(app)
+        .post("/api/auth/registration/request")
+        .send({ ...body, role: "admin" })
+    ).status,
+    400,
+  );
+  assert.equal(
+    (
+      await request(app)
+        .post("/api/auth/registration/request")
+        .send({ ...body, currentSemester: 2 })
+    ).status,
+    400,
+  );
+  const r = await request(app)
+    .post("/api/auth/registration/request")
+    .send(body);
+  assert.equal(r.status, 202, r.text);
+  const applicant = await User.findOne({ email: body.email });
+  assert.equal(applicant.status, "REQUESTED");
+  assert.equal(
+    (
+      await request(app)
+        .post("/api/auth/login")
+        .send({ identifier: body.email, password: body.password })
+    ).status,
+    401,
+  );
+  await request(app)
+    .post("/api/auth/activation/request")
+    .send({ identifier: body.email });
+  assert.equal(await Activation.countDocuments({ userId: applicant._id }), 0);
+  assert.equal(
+    (
+      await agents.admin
+        .patch(`/api/users/${applicant._id}/status`)
+        .send({ status: "ACTIVE" })
+    ).status,
+    400,
+  );
+  for (const role of ["hod", "principal", "teacher"])
+    assert.equal(
+      (
+        await agents[role]
+          .post(`/api/users/${applicant._id}/review`)
+          .send({ action: "APPROVE" })
+      ).status,
+      403,
+    );
+  const race = await Promise.all(
+    [1, 2].map(() =>
+      agents.admin
+        .post(`/api/users/${applicant._id}/review`)
+        .send({ action: "APPROVE" }),
+    ),
+  );
+  assert.deepEqual(race.map((r) => r.status).sort(), [200, 409]);
+  assert.equal((await User.findById(applicant._id)).status, "PENDING");
+  await Activation.create({
+    userId: applicant._id,
+    hash: crypto
+      .createHmac("sha256", process.env.OTP_SECRET)
+      .update(`${applicant._id}:123456`)
+      .digest("hex"),
+    expiresAt: new Date(Date.now() + 60000),
+  });
+  const activated = await request(app)
+    .post("/api/auth/activation/verify")
+    .send({
+      identifier: body.email,
+      otp: "123456",
+      newPassword: "Applicant-new-password!",
+    });
+  assert.equal(activated.status, 200, activated.text);
+  assert.equal(
+    (
+      await request(app)
+        .post("/api/auth/login")
+        .send({ identifier: body.email, password: "Applicant-new-password!" })
+    ).status,
+    200,
+  );
+  const options = await request(app).get("/api/auth/registration/options");
+  assert.equal(options.status, 200);
+  assert.ok(options.body.sections.some((s) => s._id === String(section._id)));
+});
+test("rejected requests cannot activate or be silently reapproved", async () => {
+  const body = {
+    name: "Rejected applicant",
+    email: "rejected@test.invalid",
+    role: "teacher",
+    departmentId: String(departments.cse._id),
+  };
+  assert.equal(
+    (await request(app).post("/api/auth/registration/request").send(body))
+      .status,
+    202,
+  );
+  const user = await User.findOne({ email: body.email });
+  assert.equal(
+    (
+      await agents.admin
+        .post(`/api/users/${user._id}/review`)
+        .send({ action: "REJECT", reason: "Not on staff register" })
+    ).status,
+    200,
+  );
+  assert.equal(
+    (
+      await agents.admin
+        .post(`/api/users/${user._id}/review`)
+        .send({ action: "APPROVE" })
+    ).status,
+    409,
+  );
+  assert.equal(
+    (
+      await agents.admin
+        .patch(`/api/users/${user._id}/status`)
+        .send({ status: "ACTIVE" })
+    ).status,
+    400,
+  );
+  await request(app)
+    .post("/api/auth/activation/request")
+    .send({ identifier: body.email });
+  assert.equal(await Activation.countDocuments({ userId: user._id }), 0);
+});
+test("department and section setup populates options, enforces HOD scope and semester consistency", async () => {
+  const dept = await agents.admin
+    .post("/api/departments")
+    .send({ name: "Mechanical" });
+  assert.equal(dept.status, 201, dept.text);
+  const created = await agents.admin
+    .post("/api/sections")
+    .send({
+      name: "ME A",
+      departmentId: dept.body._id,
+      semester: 3,
+      classroom: "303",
+    });
+  assert.equal(created.status, 201, created.text);
+  const id = created.body._id;
+  assert.ok(
+    (await agents.admin.get("/api/sections")).body.some((s) => s._id === id),
+  );
+  assert.equal(
+    (
+      await agents.hod
+        .put(`/api/sections/${id}`)
+        .send({ ...created.body, name: "Forbidden" })
+    ).status,
+    403,
+  );
+  assert.equal(
+    (
+      await agents.hod
+        .post("/api/sections")
+        .send({
+          name: "Outside",
+          departmentId: dept.body._id,
+          semester: 3,
+          classroom: "303",
+        })
+    ).status,
+    403,
+  );
+  const own = await agents.hod
+    .post("/api/sections")
+    .send({
+      name: "CSE C",
+      departmentId: String(departments.cse._id),
+      semester: 3,
+      classroom: "305",
+    });
+  assert.equal(own.status, 201, own.text);
+  assert.equal(
+    (await agents.hod.get("/api/sections")).body.some((s) => s._id === id),
+    false,
+  );
+  const mismatch = await agents.admin
+    .post("/api/users")
+    .send({
+      name: "Wrong semester",
+      email: "wrong-sem@test.invalid",
+      role: "student",
+      departmentId: dept.body._id,
+      sectionId: id,
+      currentSemester: 1,
+    });
+  assert.equal(mismatch.status, 400);
+  assert.equal(
+    (
+      await agents.admin
+        .put(`/api/sections/${id}`)
+        .send({ ...created.body, name: "ME B" })
+    ).status,
+    200,
+  );
+  assert.equal(
+    (await agents.admin.delete(`/api/departments/${dept.body._id}`).send({}))
+      .status,
+    409,
+  );
+  assert.equal(
+    (await agents.admin.delete(`/api/sections/${id}`).send({})).status,
+    200,
+  );
+  assert.equal(
+    (await agents.admin.delete(`/api/departments/${dept.body._id}`).send({}))
+      .status,
+    200,
+  );
+  assert.equal(
+    (await agents.hod.delete(`/api/sections/${own.body._id}`).send({})).status,
+    200,
+  );
 });

@@ -7,9 +7,7 @@ const Department = require("../../timetable/server/models/Department");
 const Section = require("../../timetable/server/models/Section");
 const { authorize, publicUser } = require("../lib/auth");
 const { ranks, managers, fail, same, canCreate } = require("../lib/policy");
-router.use(
-  authorize("super_admin", "admin", "principal", "hod", "class_teacher"),
-);
+router.use(authorize("super_admin", "admin", "principal", "hod"));
 router.get("/", async (req, res) => {
   const filter = managers.includes(req.user.role)
     ? {}
@@ -38,10 +36,21 @@ router.post("/", async (req, res) => {
     (!b.departmentId || !(await Department.exists({ _id: b.departmentId })))
   )
     fail("Select a department.");
+  if (
+    b.role === "student" &&
+    (!Number.isInteger(Number(b.currentSemester)) ||
+      Number(b.currentSemester) < 1 ||
+      Number(b.currentSemester) > 8)
+  )
+    fail("Select a semester from 1 to 8.");
   if (b.sectionId) {
     const section = await Section.findById(b.sectionId);
-    if (!section || !same(section.departmentId, b.departmentId))
-      fail("Section must belong to the selected department.");
+    if (
+      !section ||
+      !same(section.departmentId, b.departmentId) ||
+      (b.role === "student" && section.semester !== Number(b.currentSemester))
+    )
+      fail("Section must match the selected department and semester.");
   }
   const assigned = Array.isArray(b.assignedSectionIds)
     ? b.assignedSectionIds
@@ -83,7 +92,7 @@ router.patch("/:id/status", async (req, res) => {
     fail("Account is outside your authority.", 403);
   if (
     !["ACTIVE", "FROZEN", "TERMINATED"].includes(req.body.status) ||
-    user.status === "PENDING"
+    ["REQUESTED", "REJECTED", "PENDING"].includes(user.status)
   )
     fail(
       "Pending accounts must complete activation; otherwise choose active, frozen or terminated.",
@@ -128,4 +137,50 @@ router.patch("/:id/section", async (req, res) => {
   await user.save();
   res.json({ user: publicUser(user) });
 });
+router.get("/requests", authorize("admin", "super_admin"), async (req, res) => {
+  res.json(
+    (await User.find({ status: "REQUESTED" }).sort({ createdAt: 1 })).map(
+      publicUser,
+    ),
+  );
+});
+router.post(
+  "/:id/review",
+  authorize("admin", "super_admin"),
+  async (req, res) => {
+    const { action, reason } = req.body;
+    if (!["APPROVE", "REJECT"].includes(action))
+      fail("Choose approve or reject.");
+    if (
+      action === "REJECT" &&
+      (typeof reason !== "string" || !reason.trim() || reason.length > 1000)
+    )
+      fail("Provide a rejection reason (up to 1000 characters).");
+    const user = await User.findOneAndUpdate(
+      {
+        _id: req.params.id,
+        status: "REQUESTED",
+        role: { $in: ["student", "teacher", "class_teacher"] },
+      },
+      {
+        $set: {
+          status: action === "APPROVE" ? "PENDING" : "REJECTED",
+          reviewedBy: req.user._id,
+          reviewedAt: new Date(),
+          rejectionReason: action === "REJECT" ? reason.trim() : "",
+        },
+      },
+      { new: true, runValidators: true },
+    );
+    if (!user)
+      fail("Request already reviewed or not found. Refresh the list.", 409);
+    res.json({
+      user: publicUser(user),
+      message:
+        action === "APPROVE"
+          ? "Approved. The user can now request an activation code and set a password."
+          : "Request rejected.",
+    });
+  },
+);
 module.exports = router;

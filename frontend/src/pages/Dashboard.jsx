@@ -54,22 +54,22 @@ export default function Dashboard({ user }) {
           [
             "/schedule",
             "01",
-            "My timetable",
+            "Timetable",
             "See your weekly teaching or class schedule.",
           ],
           [
             "/notices",
             "02",
-            "Campus noticeboard",
+            "Notice Board",
             "Updates, deadlines and opportunities.",
           ],
-          ...(staff.includes(user.role)
+          ...(true
             ? [
                 [
                   "/leave",
                   "03",
-                  "Leave & coverage",
-                  "Arrange substitutes and track approvals.",
+                  "Leave Management",
+                  "View leave records and cover assignments.",
                 ],
               ]
             : []),

@@ -25,11 +25,11 @@ For a single production server, run `npm run build`, set `NODE_ENV=production` a
 
 1. Sign in as the bootstrap administrator.
 2. Open **Timetable studio**, create departments and sections.
-3. Open **People & access**, create staff and student accounts. Teachers need assigned sections to publish class notices. New users request a code and set their own password through **First-time activation**.
+3. Open **People & access**, create staff and student accounts. Assign students to a section matching their department and semester; assign teaching staff their sections. New users can request an account from the sign-in page. Admin/Super Admin must approve it in **Account requests** before **First-time activation** can send a code and let them set a password. Accounts created directly by authorized management are ready for activation.
 4. Use **Link to timetable** for every teaching account. Imported scheduling profiles must be explicitly linked to their matching account; names are not used to guess identity.
 5. Open **Subjects & faculty** to configure subjects, weekly loads, teacher assignments, batches and fixed slots.
 6. Generate a timetable with its start and last working dates. Save it after checking the preview. Drag-and-drop and manual changes are validated on the server before saving.
-7. Staff see the saved grid in **My timetable**. **Leave & coverage** uses the same grid, dates and staff account IDs automatically.
+7. Users see the saved grid in **Timetable**. Management records leave and substitute assignments in **Leave Management**, using the same grid, dates and staff account IDs.
 
 ## Runtime structure
 
@@ -52,7 +52,7 @@ The integrated runtime has one `User` model (`backend/models/User.js`), lowercas
 - HOD review is department-scoped. Principal approval follows HOD approval. Reviewers cannot approve their own leave. A staff member who is also HOD/Principal still needs a different authorized reviewer at each required stage; no self-approval bypass is provided.
 - Rejection cancels the linked assignments and releases their occupied substitute slots. Final approval posts balances once, atomically.
 - Current/future active leave workflows prevent schedule replacement/removal. Saved schedules must be removed before editing their subjects or section details. This intentionally prevents silent invalidation of coverage or references.
-- Notices respect department/section/year/semester audiences. Teacher tests/exams require approval. Notification reads and attachment downloads enforce the same audience rules; pending attachments are visible to authorized reviewers.
+- Notices respect department/section/year/semester audiences. Only Principal, HOD, Admin and Super Admin can write notices. A manager can request review by another authorized manager. Notification reads and attachment downloads enforce the same audience rules; pending attachments are visible to authorized reviewers.
 - Academic advancement clears student sections and invalidates their sessions. Semester-eight students become alumni. Assign new sections to promoted students using the People screen.
 - Campus clock times follow the uploaded generator: 09:00–09:50, 09:50–10:40, break, 11:00–11:50, 11:50–12:40, lunch, 13:20–14:10, 14:10–15:00, 15:00–15:50. Leave dates are calendar dates, not timezone-shifted timestamps.
 
@@ -73,3 +73,14 @@ npm run test:integration
 The integration suite starts an isolated MongoDB replica set through `mongodb-memory-server`; it never reads `.env` or connects to a live campus database. It requires permission to run MongoDB and may download a MongoDB binary on first use. It checks session protection, OTP activation, logout, notice scope/approval, attachments, one-application coverage, concurrent acceptance, ordered approvals, balance posting and schedule protection. GitHub Actions runs the same checks.
 
 Remaining production rollout work: configure real SMTP and database hosting, rotate exposed credentials, review/import existing data, verify institutional leave quotas/holiday rules and perform campus user acceptance testing. The inherited leave balance rule charges every calendar day in a requested date range; it does not infer holidays or weekends. The initial frontend can be refined without changing these API contracts.
+
+## Interfaces and permissions
+
+- Students, teachers and class teachers have exactly four navigation items: **Overview**, **Notice Board**, **Timetable**, **Leave Management**. Campus content and leave records are read-only for these roles. Sign-in/out, initial account requests and marking personal notifications read remain available.
+- Principal, HOD, Admin and Super Admin use the separate management console. HOD changes remain department-scoped; campus-wide department and academic-cycle operations remain with Principal/Admin/Super Admin. The role hierarchy still prevents managing equal or higher accounts.
+- Only Admin and Super Admin approve or reject public account requests. A request moves from `REQUESTED` to `PENDING` on approval, then `ACTIVE` after email OTP activation. Rejected or unreviewed requests cannot activate. Existing accounts are not changed by duplicate public requests.
+- Per the read-only user rule, management records staff leave and assigns substitutes on their behalf. Select the absent staff member to create the request, then select an eligible substitute and use their **Substitute requests** tab to assign coverage. After all periods are covered, return to the absent staff member and submit the reason. HOD approval precedes Principal approval; Admin/Super Admin can process either stage. Self-approval remains blocked. Students see an explanatory page because the inherited workflow only models teaching-staff leave.
+- Create a department, then a section with a semester and classroom, then active teaching accounts and scheduling links, then subjects. Section dropdowns filter by department/semester. An empty dropdown now explains the missing setup; no fictional departments or sections are seeded.
+- Management can edit/delete unused departments and sections, set staff teaching constraints, assign account sections, and edit/delete notices. Saved schedules and live leave dependencies still block changes that would invalidate records.
+
+GitHub Actions validates Compose syntax, regression tests, the production build, database integration workflows, and browser checks of all seven roles, section creation, mobile navigation and account requests. Browser checks use fixture API responses; database tests separately verify real authorization and persistence. To run browser checks locally after `npm run build`: `npm install --no-save --package-lock=false playwright@1.62.1`, `npx playwright install chromium`, then `node frontend/tests/smoke.cjs`.

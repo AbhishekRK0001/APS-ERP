@@ -999,3 +999,100 @@ summary::marker {
     display: none;
   }
 }
+
+/* Distinct management console and campus reader surfaces. */
+.sidebar {
+  overflow-y: auto;
+}
+.login-story h1,
+.welcome h2 {
+  color: #f1f3e8;
+}
+.admin-app {
+  background: #f2f4f8;
+  --line: #dce1e9;
+  --muted: #67758a;
+}
+.admin-app .sidebar {
+  background: #182334;
+  color: #dbe5f2;
+  padding-top: 24px;
+}
+.admin-app .sidebar nav {
+  gap: 3px;
+}
+.admin-app .sidebar nav a {
+  padding: 10px 12px;
+  color: #c1ccdc;
+}
+.admin-app .sidebar nav a.active {
+  background: #dce8fb;
+  color: #18365f;
+}
+.admin-app .nav-caption {
+  margin-top: 28px;
+  color: #99abc5;
+}
+.admin-app .sidebar-bottom {
+  padding-top: 25px;
+}
+.admin-app .card,
+.admin-app .quick-card {
+  border-radius: 7px;
+}
+.admin-app .stats > div {
+  background: #e4ebf6;
+}
+.admin-app .button:not(.secondary) {
+  background: #285283;
+}
+.admin-app .quick-card > small {
+  margin-bottom: 16px;
+  color: #56759a;
+}
+.admin-app .heading h1 {
+  color: #233750;
+}
+.user-app .welcome {
+  background: linear-gradient(120deg, #123b32, #28583f);
+  box-shadow: 0 15px 35px #163b3312;
+}
+.user-app .quick-card {
+  border-top: 3px solid #b3cc91;
+}
+.user-app .sidebar nav a {
+  padding: 17px 14px;
+}
+.user-app main {
+  max-width: 1380px;
+}
+.card details {
+  margin-top: 16px;
+}
+.card details form {
+  margin-top: 16px;
+}
+.inline-form > .field {
+  min-width: 130px;
+}
+.inline-form {
+  flex-wrap: wrap;
+}
+@media (max-width: 760px) {
+  .admin-app .sidebar {
+    width: 250px;
+  }
+  .user-app .quick-grid {
+    grid-template-columns: 1fr;
+  }
+}
+#root {
+  max-width: none;
+  margin: 0;
+  padding: 0;
+}
+body {
+  font-family: "DM Sans", system-ui, sans-serif;
+  background: #f5f6f2;
+  color: #243935;
+}

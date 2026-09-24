@@ -1,5 +1,6 @@
 import { useState } from "react";
 import api, { message } from "../api";
+import { Registration } from "./AccountRequests";
 import { Alert, Field } from "../ui";
 export default function Login({ onLogin, initialError }) {
   const [mode, setMode] = useState("login"),
@@ -64,94 +65,102 @@ export default function Login({ onLogin, initialError }) {
         <small>APS ERP · Built for the way your campus works</small>
       </section>
       <section className="login-form">
-        <small>WELCOME TO APS</small>
-        <h2>
-          {mode === "login"
-            ? "Sign in to your workspace"
-            : mode === "request"
-              ? "First time here?"
-              : "Activate your account"}
-        </h2>
-        <p className="muted">
-          {mode === "login"
-            ? "Use your college account to continue."
-            : "Your administrator must create your account first."}
-        </p>
-        <form onSubmit={submit}>
-          <Field
-            label="Email or college ID"
-            name="identifier"
-            required
-            autoComplete="username"
-          />
-          {mode === "login" ? (
-            <Field
-              label="Password"
-              name="password"
-              type="password"
-              required
-              autoComplete="current-password"
-            />
-          ) : mode === "verify" ? (
-            <>
-              <Field
-                label="Six-digit activation code"
-                name="otp"
-                inputMode="numeric"
-                pattern="[0-9]{6}"
-                required
-              />
-              <Field
-                label="New password · at least 12 characters"
-                name="newPassword"
-                type="password"
-                minLength={12}
-                maxLength={128}
-                required
-                autoComplete="new-password"
-              />
-            </>
-          ) : null}
-          <Alert>{error}</Alert>
-          {info && (
-            <p className="success" role="status">
-              {info}
-            </p>
-          )}
-          <button className="button primary" disabled={busy}>
-            {busy
-              ? "Please wait…"
-              : mode === "login"
-                ? "Sign in →"
+        {mode === "register" ? (
+          <Registration onBack={() => setMode("login")} />
+        ) : (
+          <>
+            <small>WELCOME TO APS</small>
+            <h2>
+              {mode === "login"
+                ? "Sign in to your workspace"
                 : mode === "request"
-                  ? "Send activation code"
-                  : "Activate account"}
-          </button>
-        </form>
-        <div className="login-links">
-          {["login", "request", "verify"]
-            .filter((m) => m !== mode)
-            .map((m) => (
-              <button
-                className="ghost"
-                key={m}
-                onClick={() => {
-                  setMode(m);
-                  setError("");
-                  setInfo("");
-                }}
-              >
-                {m === "login"
-                  ? "Back to sign in"
-                  : m === "request"
-                    ? "First-time activation"
-                    : "I have an activation code"}
+                  ? "First time here?"
+                  : "Activate your account"}
+            </h2>
+            <p className="muted">
+              {mode === "login"
+                ? "Use your college account to continue."
+                : "Your account must be approved before activation. Request an account if you have not applied yet."}
+            </p>
+            <form onSubmit={submit}>
+              <Field
+                label="Email or college ID"
+                name="identifier"
+                required
+                autoComplete="username"
+              />
+              {mode === "login" ? (
+                <Field
+                  label="Password"
+                  name="password"
+                  type="password"
+                  required
+                  autoComplete="current-password"
+                />
+              ) : mode === "verify" ? (
+                <>
+                  <Field
+                    label="Six-digit activation code"
+                    name="otp"
+                    inputMode="numeric"
+                    pattern="[0-9]{6}"
+                    required
+                  />
+                  <Field
+                    label="New password · at least 12 characters"
+                    name="newPassword"
+                    type="password"
+                    minLength={12}
+                    maxLength={128}
+                    required
+                    autoComplete="new-password"
+                  />
+                </>
+              ) : null}
+              <Alert>{error}</Alert>
+              {info && (
+                <p className="success" role="status">
+                  {info}
+                </p>
+              )}
+              <button className="button primary" disabled={busy}>
+                {busy
+                  ? "Please wait…"
+                  : mode === "login"
+                    ? "Sign in →"
+                    : mode === "request"
+                      ? "Send activation code"
+                      : "Activate account"}
               </button>
-            ))}
-        </div>
-        <small className="muted">
-          Need access? Contact your campus administrator.
-        </small>
+            </form>
+            <div className="login-links">
+              {["login", "register", "request", "verify"]
+                .filter((m) => m !== mode)
+                .map((m) => (
+                  <button
+                    className="ghost"
+                    key={m}
+                    onClick={() => {
+                      setMode(m);
+                      setError("");
+                      setInfo("");
+                    }}
+                  >
+                    {m === "login"
+                      ? "Back to sign in"
+                      : m === "register"
+                        ? "Request an account"
+                        : m === "request"
+                          ? "First-time activation"
+                          : "I have an activation code"}
+                  </button>
+                ))}
+            </div>
+            <small className="muted">
+              Need access? Contact your campus administrator.
+            </small>
+          </>
+        )}
       </section>
     </div>
   );

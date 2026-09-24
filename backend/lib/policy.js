@@ -8,12 +8,14 @@ const ranks = {
   super_admin: 6,
 };
 const managers = ["super_admin", "admin", "principal"];
+const editors = [...managers, "hod"];
 const staff = ["teacher", "class_teacher", "hod", "principal"];
 const same = (a, b) => !!a && !!b && String(a._id || a) === String(b._id || b);
 const fail = (message, status = 400) => {
   throw Object.assign(new Error(message), { status });
 };
 function canCreate(actor, role, departmentId, sectionId) {
+  if (!editors.includes(actor.role)) return false;
   if (!(role in ranks) || ranks[actor.role] <= ranks[role]) return false;
   if (managers.includes(actor.role)) return true;
   if (!same(actor.departmentId, departmentId)) return false;
@@ -58,4 +60,13 @@ function noticeQuery(user, now = new Date()) {
     $and: and,
   };
 }
-module.exports = { ranks, managers, staff, same, fail, canCreate, noticeQuery };
+module.exports = {
+  ranks,
+  managers,
+  editors,
+  staff,
+  same,
+  fail,
+  canCreate,
+  noticeQuery,
+};

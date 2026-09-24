@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import API from "../api/api";
 
 export default function SubjectForm() {
@@ -202,13 +203,26 @@ export default function SubjectForm() {
 
         {noSections && (
           <div className="empty-state inline-empty">
-            No sections found. Add a section first.
+            No sections found.{" "}
+            <Link to="/timetable">Create departments and sections first.</Link>
           </div>
         )}
 
+        {semester &&
+          !noSections &&
+          !sections.some((s) => String(s.semester) === semester) && (
+            <p className="muted">
+              No sections for semester {semester}.{" "}
+              <Link to="/timetable">Create a section for this semester</Link> or
+              choose another semester.
+            </p>
+          )}
         {noTeachers && (
           <div className="empty-state inline-empty">
-            No teachers found. Add a teacher first.
+            No scheduling teachers found.{" "}
+            <Link to="/people">
+              Create or approve staff accounts and link them to the timetable.
+            </Link>
           </div>
         )}
 
@@ -277,7 +291,7 @@ export default function SubjectForm() {
         </div>
 
         <div className="form-actions">
-          <button disabled={disabled} onClick={handleSubmit}>
+          <button disabled={disabled || noTeachers} onClick={handleSubmit}>
             {editingId ? "Save Subject Changes" : "Add Subject"}
           </button>
           {editingId && (

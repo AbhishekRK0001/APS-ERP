@@ -153,4 +153,77 @@ router.post("/activation/verify", limit, async (req, res) => {
   );
   res.json({ message: "Account activated. You can now sign in." });
 });
+// Registration never activates an account or accepts a management role.
+router.get("/registration/options", limit, async (req, res) => {
+  const Department = require("../../timetable/server/models/Department");
+  const Section = require("../../timetable/server/models/Section");
+  res.json({
+    departments: await Department.find().select("name").sort({ name: 1 }),
+    sections: await Section.find()
+      .select("name semester departmentId")
+      .sort({ semester: 1, name: 1 }),
+  });
+});
+router.post("/registration/request", limit, async (req, res) => {
+  const b = req.body;
+  const Department = require("../../timetable/server/models/Department");
+  const Section = require("../../timetable/server/models/Section");
+  if (
+    typeof b.name !== "string" ||
+    !b.name.trim() ||
+    b.name.length > 150 ||
+    typeof b.email !== "string" ||
+    b.email.length > 254 ||
+    !/^\S+@\S+\.\S+$/.test(b.email)
+  )
+    fail("Enter your name and a valid email.");
+  if (!["student", "teacher", "class_teacher"].includes(b.role))
+    fail("Account requests are for students and teaching staff only.");
+  if (!b.departmentId || !(await Department.exists({ _id: b.departmentId })))
+    fail(
+      "Choose an existing department. If none are listed, ask the administrator to complete campus setup.",
+    );
+  const sem = Number(b.currentSemester);
+  if (b.role === "student") {
+    if (!Number.isInteger(sem) || sem < 1 || sem > 8)
+      fail("Choose a semester from 1 to 8.");
+    if (
+      !b.sectionId ||
+      !(await Section.exists({
+        _id: b.sectionId,
+        departmentId: b.departmentId,
+        semester: sem,
+      }))
+    )
+      fail("Choose a section in your department and semester.");
+  }
+  if (b.usn !== undefined && (typeof b.usn !== "string" || b.usn.length > 100))
+    fail("Enter a valid college ID.");
+  const email = b.email.trim().toLowerCase();
+  const usn = b.usn?.trim() || undefined;
+  if (!(await User.exists({ $or: [{ email }, ...(usn ? [{ usn }] : [])] }))) {
+    try {
+      await User.create({
+        name: b.name.trim(),
+        email,
+        usn,
+        role: b.role,
+        status: "REQUESTED",
+        departmentId: b.departmentId,
+        sectionId: b.role === "student" ? b.sectionId : null,
+        currentSemester: b.role === "student" ? sem : undefined,
+        currentYear: b.role === "student" ? Math.ceil(sem / 2) : undefined,
+        password: await bcrypt.hash(crypto.randomBytes(32).toString("hex"), 12),
+      });
+    } catch (e) {
+      if (e.code !== 11000) throw e;
+    }
+  }
+  res
+    .status(202)
+    .json({
+      message:
+        "Your request has been received. After Admin or Super Admin approval, use First-time activation to request a code and set your password. Existing accounts are unchanged.",
+    });
+});
 module.exports = router;

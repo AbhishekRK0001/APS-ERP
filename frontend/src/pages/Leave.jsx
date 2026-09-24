@@ -10,13 +10,21 @@ import {
   Action,
   Empty,
   label,
+  staff,
 } from "../ui";
-export default function Leave({ user }) {
+export default function Leave({
+  user,
+  readOnly = true,
+  teacherId = "",
+  onChanged,
+}) {
+  const scoped = (path) =>
+    path + (teacherId ? `?teacherId=${encodeURIComponent(teacherId)}` : "");
   const [tab, setTab] = useState("mine");
-  const mine = useData("/leaves/my"),
-    incoming = useData("/substitutes/my"),
-    accepted = useData("/substitutes/accepted"),
-    balance = useData("/leaves/balance"),
+  const mine = useData(scoped("/leaves/my")),
+    incoming = useData(scoped("/substitutes/my")),
+    accepted = useData(scoped("/substitutes/accepted")),
+    balance = useData(scoped("/leaves/balance")),
     sections = useData("/sections");
   const [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
@@ -25,17 +33,18 @@ export default function Leave({ user }) {
     incoming.refresh();
     accepted.refresh();
     balance.refresh();
+    onChanged?.();
   };
   const className = (id) =>
     sections.data?.find((s) => s._id === id)?.name || id;
-  const reviewer = ["hod", "principal"].includes(user.role);
+  const reviewer = false;
   async function request(e) {
     e.preventDefault();
     setError("");
     setBusy(true);
     try {
       await api.post(
-        "/substitutes/request",
+        scoped("/substitutes/request"),
         Object.fromEntries(new FormData(e.target)),
       );
       refresh();
@@ -47,7 +56,16 @@ export default function Leave({ user }) {
   }
   return (
     <>
-      <Heading title="Leave & coverage" eyebrow="KEEP EVERY CLASS COVERED" />
+      <Heading
+        title={teacherId ? `Leave records · ${user.name}` : "Leave Management"}
+        eyebrow="KEEP EVERY CLASS COVERED"
+      />
+      {readOnly && (
+        <p className="muted">
+          Your leave records and coverage assignments are read-only. Contact
+          your HOD or campus management to request changes.
+        </p>
+      )}
       <div className="stats">
         <div>
           <small>First half available</small>
@@ -86,46 +104,55 @@ export default function Leave({ user }) {
           </button>
         ))}
       </div>
-      <Alert>{error || mine.error || incoming.error}</Alert>
+      <Alert>
+        {error ||
+          mine.error ||
+          incoming.error ||
+          accepted.error ||
+          balance.error ||
+          sections.error}
+      </Alert>
       {tab === "mine" && (
         <>
-          <section className="card">
-            <h2>Plan your leave</h2>
-            <p className="muted">
-              One application for the entire date range. Submit the reason after
-              every scheduled period has an accepted substitute.
-            </p>
-            <form className="form-grid" onSubmit={request}>
-              <Field
-                label="Start date"
-                type="date"
-                name="startDate"
-                min={new Date().toISOString().slice(0, 10)}
-                required
-              />
-              <Field
-                label="End date"
-                type="date"
-                name="endDate"
-                min={new Date().toISOString().slice(0, 10)}
-                required
-              />
-              <Select label="Leave type" name="leaveType">
-                {["casual", "sick", "emergency", "paternity/maternity"].map(
-                  (t) => (
-                    <option key={t} value={t}>
-                      {label(t)}
-                    </option>
-                  ),
-                )}
-              </Select>
-              <div className="form-end">
-                <button className="button" disabled={busy}>
-                  {busy ? "Requesting…" : "Request substitute coverage"}
-                </button>
-              </div>
-            </form>
-          </section>
+          {!readOnly && (
+            <section className="card">
+              <h2>Record leave for {user.name}</h2>
+              <p className="muted">
+                One application for the entire date range. Submit the reason
+                after every scheduled period has an accepted substitute.
+              </p>
+              <form className="form-grid" onSubmit={request}>
+                <Field
+                  label="Start date"
+                  type="date"
+                  name="startDate"
+                  min={new Date().toISOString().slice(0, 10)}
+                  required
+                />
+                <Field
+                  label="End date"
+                  type="date"
+                  name="endDate"
+                  min={new Date().toISOString().slice(0, 10)}
+                  required
+                />
+                <Select label="Leave type" name="leaveType">
+                  {["casual", "sick", "emergency", "paternity/maternity"].map(
+                    (t) => (
+                      <option key={t} value={t}>
+                        {label(t)}
+                      </option>
+                    ),
+                  )}
+                </Select>
+                <div className="form-end">
+                  <button className="button" disabled={busy}>
+                    {busy ? "Requesting…" : "Request substitute coverage"}
+                  </button>
+                </div>
+              </form>
+            </section>
+          )}
           {mine.data?.length ? (
             mine.data.map((l) => (
               <article className="card" key={l._id}>
@@ -180,13 +207,13 @@ export default function Leave({ user }) {
                     </tbody>
                   </table>
                 </div>
-                {l.status === "substitute_confirmed" && (
+                {!readOnly && l.status === "substitute_confirmed" && (
                   <form
                     className="inline-form"
                     onSubmit={async (e) => {
                       e.preventDefault();
                       try {
-                        await api.patch(`/leaves/${l._id}/details`, {
+                        await api.patch(scoped(`/leaves/${l._id}/details`), {
                           reason: new FormData(e.target).get("reason"),
                         });
                         refresh();
@@ -228,21 +255,27 @@ export default function Leave({ user }) {
                 Leave dates: {r.leave?.startDate.slice(0, 10)} —{" "}
                 {r.leave?.endDate.slice(0, 10)}
               </p>
-              <div className="inline-actions">
-                <Action
-                  run={() => api.patch(`/substitutes/${r._id}/accept`, {})}
-                  onDone={refresh}
-                >
-                  Accept period
-                </Action>
-                <Action
-                  className="button secondary"
-                  run={() => api.patch(`/substitutes/${r._id}/decline`, {})}
-                  onDone={refresh}
-                >
-                  Decline
-                </Action>
-              </div>
+              {!readOnly && (
+                <div className="inline-actions">
+                  <Action
+                    run={() =>
+                      api.patch(scoped(`/substitutes/${r._id}/accept`), {})
+                    }
+                    onDone={refresh}
+                  >
+                    Assign selected teacher
+                  </Action>
+                  <Action
+                    className="button secondary"
+                    run={() =>
+                      api.patch(scoped(`/substitutes/${r._id}/decline`), {})
+                    }
+                    onDone={refresh}
+                  >
+                    Decline
+                  </Action>
+                </div>
+              )}
             </article>
           ))
         ) : (
@@ -272,8 +305,8 @@ export default function Leave({ user }) {
     </>
   );
 }
-function Review() {
-  const { data, error, refresh } = useData("/leaves/review");
+function Review({ user }) {
+  const { data, error, refresh } = useData("/leaves/all");
   return (
     <>
       <Alert>{error}</Alert>
@@ -292,30 +325,102 @@ function Review() {
             <p className="muted">
               {l.substituteRequests.length} covered periods
             </p>
-            <div className="inline-actions">
-              <Action
-                run={() => api.patch(`/leaves/${l._id}/approve`, {})}
-                onDone={refresh}
-              >
-                Approve application
-              </Action>
-              <Action
-                className="button secondary"
-                run={async () => {
-                  const reason = window.prompt("Reason for rejection");
-                  if (reason)
-                    await api.patch(`/leaves/${l._id}/reject`, { reason });
-                }}
-                onDone={refresh}
-              >
-                Reject
-              </Action>
-            </div>
+            {l.teacher?._id !== user._id &&
+              (user.role === "hod"
+                ? l.status === "submitted"
+                : user.role === "principal"
+                  ? l.status === "hod_approved"
+                  : ["submitted", "hod_approved"].includes(l.status)) && (
+                <div className="inline-actions">
+                  <Action
+                    run={() => api.patch(`/leaves/${l._id}/approve`, {})}
+                    onDone={refresh}
+                  >
+                    Approve application
+                  </Action>
+                  <Action
+                    className="button secondary"
+                    run={async () => {
+                      const reason = window.prompt("Reason for rejection");
+                      if (reason)
+                        await api.patch(`/leaves/${l._id}/reject`, { reason });
+                    }}
+                    onDone={refresh}
+                  >
+                    Reject
+                  </Action>
+                </div>
+              )}
           </article>
         ))
       ) : (
-        <Empty>No applications awaiting your review.</Empty>
+        <Empty>No leave applications in your scope.</Empty>
       )}
+    </>
+  );
+}
+
+export function ReadOnlyLeave({ user }) {
+  if (!staff.includes(user.role))
+    return (
+      <>
+        <Heading title="Leave Management" />
+        <Empty>
+          The current leave workflow covers teaching staff. Student leave
+          records are not configured for this campus.
+        </Empty>
+      </>
+    );
+  return <Leave user={user} readOnly />;
+}
+export function ManagedLeave({ user }) {
+  const people = useData("/users");
+  const [selected, setSelected] = useState("");
+  const [revision, setRevision] = useState(0);
+  const target = people.data?.find((p) => p._id === selected);
+  return (
+    <>
+      <Heading title="Leave administration" />
+      <Alert>{people.error}</Alert>
+      <section className="card">
+        <h2>Staff leave & coverage</h2>
+        <p>
+          Choose the staff member whose records you want to manage. To assign
+          substitute coverage, select the substitute teacher and open their
+          Substitute requests tab.
+        </p>
+        <Select
+          label="Staff member"
+          value={selected}
+          onChange={(e) => setSelected(e.target.value)}
+        >
+          <option value="">Choose a teaching account</option>
+          {people.data
+            ?.filter((p) => staff.includes(p.role) && p.status === "ACTIVE")
+            .map((p) => (
+              <option key={p._id} value={p._id}>
+                {p.name} · {label(p.role)}
+              </option>
+            ))}
+        </Select>
+      </section>
+      {target && (
+        <Leave
+          key={target._id}
+          user={target}
+          teacherId={target._id}
+          readOnly={false}
+          onChanged={() => setRevision((v) => v + 1)}
+        />
+      )}
+      <section className="card">
+        <h2>All applications & approvals</h2>
+        <p>
+          HOD review comes first, followed by Principal review. Admins can
+          process either stage. Self-approval is blocked.
+        </p>
+        <Review key={`${selected}-${revision}`} user={user} />
+      </section>
     </>
   );
 }

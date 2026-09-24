@@ -5,7 +5,7 @@ const Section = require("../../timetable/server/models/Section");
 const Department = require("../../timetable/server/models/Department");
 const { authorize } = require("../lib/auth");
 const { managers, same, fail, noticeQuery } = require("../lib/policy");
-const writers = authorize(...managers, "hod", "teacher", "class_teacher");
+const writers = authorize(...managers, "hod");
 const reviewers = authorize(...managers, "hod");
 const details = (q) =>
   q
@@ -131,9 +131,7 @@ router.post("/notices", writers, async (req, res) => {
     } else if (!/^https:\/\//i.test(a.url))
       fail("Attachment links must use HTTPS.");
   }
-  const requiresApproval =
-    teacher &&
-    (["TEST", "EXAM"].includes(b.type) || b.requestApproval === true);
+  const requiresApproval = b.requestApproval === true;
   const notice = await Notice.create({
     ...payload,
     attachments,
@@ -208,5 +206,47 @@ router.post("/notifications/read", async (req, res) => {
     { upsert: true },
   );
   res.json({ message: "Marked read." });
+});
+router.patch("/notices/:id", writers, async (req, res) => {
+  const notice = await Notice.findById(req.params.id);
+  if (!notice) fail("Notice not found.", 404);
+  if (
+    req.user.role === "hod" &&
+    !same(notice.departmentId, req.user.departmentId)
+  )
+    fail("Notice is outside your department.", 403);
+  const b = req.body;
+  for (const [field, max] of [
+    ["title", 200],
+    ["description", 10000],
+  ]) {
+    if (b[field] !== undefined) {
+      if (
+        typeof b[field] !== "string" ||
+        !b[field].trim() ||
+        b[field].length > max
+      )
+        fail(`Enter a valid ${field}.`);
+      notice[field] = b[field].trim();
+    }
+  }
+  if (b.isPinned !== undefined) {
+    if (typeof b.isPinned !== "boolean") fail("Pin must be true or false.");
+    notice.isPinned = b.isPinned;
+  }
+  await notice.save();
+  res.json(notice);
+});
+router.delete("/notices/:id", writers, async (req, res) => {
+  const notice = await Notice.findById(req.params.id);
+  if (!notice) fail("Notice not found.", 404);
+  if (
+    req.user.role === "hod" &&
+    !same(notice.departmentId, req.user.departmentId)
+  )
+    fail("Notice is outside your department.", 403);
+  await notice.deleteOne();
+  await Read.deleteMany({ noticeId: notice._id });
+  res.json({ message: "Notice deleted." });
 });
 module.exports = router;

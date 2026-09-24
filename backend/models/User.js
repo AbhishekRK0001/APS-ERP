@@ -24,7 +24,15 @@ const userSchema = new Schema(
     role: { type: String, enum: roles, required: true },
     status: {
       type: String,
-      enum: ["PENDING", "ACTIVE", "FROZEN", "ALUMNI", "TERMINATED"],
+      enum: [
+        "REQUESTED",
+        "REJECTED",
+        "PENDING",
+        "ACTIVE",
+        "FROZEN",
+        "ALUMNI",
+        "TERMINATED",
+      ],
       default: "PENDING",
     },
     departmentId: {
@@ -50,6 +58,9 @@ const userSchema = new Schema(
     loginAttempts: { type: Number, default: 0 },
     lockUntil: Date,
     workflowRevision: { type: Number, default: 0, select: false },
+    reviewedBy: { type: Schema.Types.ObjectId, ref: "User" },
+    reviewedAt: Date,
+    rejectionReason: { type: String, maxlength: 1000 },
     createdBy: { type: Schema.Types.ObjectId, ref: "User" },
   },
   { timestamps: true },

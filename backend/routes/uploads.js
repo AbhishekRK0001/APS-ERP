@@ -14,7 +14,7 @@ const upload = multer({
 const directory = path.resolve(__dirname, "../../uploads");
 router.post(
   "/uploads/notices",
-  authorize(...managers, "hod", "teacher", "class_teacher"),
+  authorize(...managers, "hod"),
   upload.single("file"),
   async (req, res) => {
     const f = req.file;

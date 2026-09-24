@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react";
 import { NavLink, Routes, Route, Navigate, Link } from "react-router-dom";
 import api, { message } from "./api";
-import { managers, staff, label, Alert, Loading } from "./ui";
+import { managers, editors, label, Alert, Loading } from "./ui";
 import Login from "./pages/Login";
+import AdminDashboard from "./pages/AdminDashboard";
+import AccountRequests from "./pages/AccountRequests";
+import { ManagedLeave, ReadOnlyLeave } from "./pages/Leave";
 import Dashboard from "./pages/Dashboard";
 import People from "./pages/People";
 import Academics from "./pages/Academics";
-import Leave from "./pages/Leave";
 import Notices from "./pages/Notices";
 import Cycle from "./pages/Cycle";
 import Schedule from "./pages/Schedule";
@@ -50,39 +52,44 @@ export default function App() {
     );
   if (!user) return <Login onLogin={setUser} initialError={error} />;
   const isManager = managers.includes(user.role),
-    isStaff = staff.includes(user.role),
     canSchedule = isManager || user.role === "hod";
-  const links = [
-    ["/", "Overview", "◈"],
-    ["/schedule", "My timetable", "▦"],
-    ["/notices", "Noticeboard", "▤"],
-    ...(isStaff ? [["/leave", "Leave & coverage", "↗"]] : []),
-    ...(canSchedule ? [["/timetable", "Timetable studio", "▦"]] : []),
-    ...(["super_admin", "admin", "principal", "hod", "class_teacher"].includes(
-      user.role,
-    )
-      ? [["/people", "People & access", "♧"]]
-      : []),
-    ...(isManager ? [["/cycle", "Academic cycle", "↻"]] : []),
-  ];
+  const management = editors.includes(user.role);
+  const links = management
+    ? [
+        ["/", "Administration", "◈"],
+        ["/notices", "Notice Board", "▤"],
+        ["/timetable", "Departments & sections", "▦"],
+        ["/people", "People & access", "♧"],
+        ["/timetable/subjects", "Subjects & faculty", "▧"],
+        ["/timetable/generate", "Timetable generator", "▦"],
+        ["/schedule", "My timetable", "▦"],
+        ["/leave", "Leave Management", "↗"],
+        ...(["admin", "super_admin"].includes(user.role)
+          ? [["/account-requests", "Account requests", "+"]]
+          : []),
+        ...(isManager ? [["/cycle", "Academic cycle", "↻"]] : []),
+      ]
+    : [
+        ["/", "Overview", "◈"],
+        ["/notices", "Notice Board", "▤"],
+        ["/schedule", "Timetable", "▦"],
+        ["/leave", "Leave Management", "↗"],
+      ];
   return (
-    <div className="app">
+    <div className={`app ${management ? "admin-app" : "user-app"}`}>
       <aside className={open ? "sidebar open" : "sidebar"}>
         <Link to="/" className="brand">
           <b>A</b>
           <span>
-            APS<span>Campus workspace</span>
+            APS<span>{management ? "Administration" : "My campus"}</span>
           </span>
         </Link>
-        <div className="nav-caption">YOUR CAMPUS, CONNECTED</div>
+        <div className="nav-caption">
+          {management ? "CAMPUS MANAGEMENT" : "YOUR CAMPUS, CONNECTED"}
+        </div>
         <nav>
           {links.map(([to, name, icon]) => (
-            <NavLink
-              end={to === "/"}
-              to={to}
-              key={to}
-              onClick={() => setOpen(false)}
-            >
+            <NavLink end to={to} key={to} onClick={() => setOpen(false)}>
               <span>{icon}</span>
               {name}
             </NavLink>
@@ -110,7 +117,8 @@ export default function App() {
             ☰
           </button>
           <span className="breadcrumb">
-            APS ERP <span>/</span> Campus workspace
+            APS ERP <span>/</span>{" "}
+            {management ? "Management console" : "My campus"}
           </span>
           <div className="top-actions">
             <button
@@ -177,14 +185,48 @@ export default function App() {
         <main>
           <Alert>{error}</Alert>
           <Routes>
-            <Route path="/" element={<Dashboard user={user} />} />
+            <Route
+              path="/"
+              element={
+                management ? (
+                  <AdminDashboard user={user} />
+                ) : (
+                  <Dashboard user={user} />
+                )
+              }
+            />
             <Route path="/schedule" element={<Schedule user={user} />} />
             <Route path="/notices" element={<Notices user={user} />} />
             <Route
               path="/leave"
-              element={isStaff ? <Leave user={user} /> : <Navigate to="/" />}
+              element={
+                management ? (
+                  <ManagedLeave user={user} />
+                ) : (
+                  <ReadOnlyLeave user={user} />
+                )
+              }
             />
-            <Route path="/people" element={<People user={user} />} />
+            <Route
+              path="/people"
+              element={
+                management ? (
+                  <People user={user} />
+                ) : (
+                  <Navigate to="/" replace />
+                )
+              }
+            />
+            <Route
+              path="/account-requests"
+              element={
+                ["admin", "super_admin"].includes(user.role) ? (
+                  <AccountRequests />
+                ) : (
+                  <Navigate to="/" replace />
+                )
+              }
+            />
             <Route
               path="/timetable"
               element={
@@ -197,7 +239,7 @@ export default function App() {
             />
             <Route
               path="/timetable/subjects"
-              element={isManager ? <SubjectsPage /> : <Navigate to="/" />}
+              element={management ? <SubjectsPage /> : <Navigate to="/" />}
             />
             <Route
               path="/cycle"

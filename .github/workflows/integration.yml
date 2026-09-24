@@ -1,7 +1,7 @@
 name: Integrated ERP checks
 on:
   push:
-    branches: [main, 'integration/**']
+    branches: [main, "integration/**"]
   pull_request:
 permissions:
   contents: read
@@ -15,7 +15,13 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - run: docker compose config --quiet
       - run: npm ci
       - run: npm test
       - run: npm run build
       - run: npm run test:integration
+      - name: Install browser test tools
+        run: npm install --no-save --package-lock=false playwright@1.62.1
+      - run: npx playwright install --with-deps chromium
+      - name: Browser role and setup checks
+        run: node frontend/tests/smoke.cjs

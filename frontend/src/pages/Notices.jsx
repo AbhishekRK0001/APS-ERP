@@ -10,6 +10,7 @@ import {
   Action,
   Empty,
   managers,
+  editors,
 } from "../ui";
 export default function Notices({ user }) {
   const [tab, setTab] = useState("published"),
@@ -24,7 +25,7 @@ export default function Notices({ user }) {
   );
   const sections = useData("/sections"),
     departments = useData("/departments");
-  const writer = user.role !== "student",
+  const writer = editors.includes(user.role),
     reviewer = managers.includes(user.role) || user.role === "hod";
   const teacher = ["teacher", "class_teacher"].includes(user.role);
   async function create(e) {
@@ -80,7 +81,9 @@ export default function Notices({ user }) {
           </button>
         ))}
       </div>
-      <Alert>{error || notices.error}</Alert>
+      <Alert>
+        {error || notices.error || sections.error || departments.error}
+      </Alert>
       {info && <p className="success">{info}</p>}
       {tab === "create" ? (
         <section className="card">
@@ -141,7 +144,10 @@ export default function Notices({ user }) {
                 <option value="">Choose section</option>
                 {sections.data
                   ?.filter(
-                    (s) => !teacher || user.assignedSectionIds.includes(s._id),
+                    (s) =>
+                      user.role !== "hod" ||
+                      String(s.departmentId?._id || s.departmentId) ===
+                        String(user.departmentId),
                   )
                   .map((s) => (
                     <option key={s._id} value={s._id}>
@@ -247,10 +253,10 @@ export default function Notices({ user }) {
             <label className="check">
               <input type="checkbox" name="showInTicker" /> Include in ticker
             </label>
-            {teacher && (
+            {writer && (
               <label className="check">
-                <input type="checkbox" name="requestApproval" /> Request HOD
-                approval (automatic for tests and exams)
+                <input type="checkbox" name="requestApproval" /> Request review
+                by another authorized manager
               </label>
             )}
             <div className="form-end">
@@ -295,6 +301,68 @@ export default function Notices({ user }) {
                 </p>
               ))}
               {tab !== "published" && <Badge>{n.approvalStatus}</Badge>}
+              {writer &&
+                (user.role !== "hod" ||
+                  String(n.departmentId?._id || n.departmentId) ===
+                    String(user.departmentId)) && (
+                  <details>
+                    <summary>Edit notice</summary>
+                    <form
+                      onSubmit={async (e) => {
+                        e.preventDefault();
+                        try {
+                          const b = Object.fromEntries(new FormData(e.target));
+                          await api.patch(`/notices/${n._id}`, {
+                            ...b,
+                            isPinned: b.isPinned === "on",
+                          });
+                          notices.refresh();
+                          setInfo("Notice updated.");
+                        } catch (e) {
+                          setError(message(e));
+                        }
+                      }}
+                    >
+                      <Field
+                        label="Title"
+                        name="title"
+                        defaultValue={n.title}
+                        required
+                        maxLength={200}
+                      />
+                      <Field label="Description">
+                        <textarea
+                          name="description"
+                          defaultValue={n.description}
+                          required
+                          maxLength={10000}
+                        />
+                      </Field>
+                      <label className="check">
+                        <input
+                          name="isPinned"
+                          type="checkbox"
+                          defaultChecked={n.isPinned}
+                        />
+                        Pin notice
+                      </label>
+                      <div className="inline-actions">
+                        <button className="button">Save changes</button>
+                        <Action
+                          className="button secondary"
+                          run={async () => {
+                            if (window.confirm("Delete this notice?"))
+                              await api.delete(`/notices/${n._id}`);
+                          }}
+                          onDone={notices.refresh}
+                        >
+                          Delete notice
+                        </Action>
+                      </div>
+                    </form>
+                  </details>
+                )}
+
               {n.rejectionReason && <Alert>{n.rejectionReason}</Alert>}
               {tab === "pending" && (
                 <div className="inline-actions">

@@ -42,3 +42,15 @@ test("saved timetable projects each lab slot with the real campus times and date
   assert.equal(tt.days[0].periods[0].validTo, "2027-05-31");
   assert.equal(project([{ grid }], "other").days[0].periods.length, 0);
 });
+
+test("class teachers cannot create student accounts even in an assigned section", () => {
+  assert.equal(
+    canCreate(
+      { role: "class_teacher", departmentId: "cse", assignedSectionIds: ["A"] },
+      "student",
+      "cse",
+      "A",
+    ),
+    false,
+  );
+});

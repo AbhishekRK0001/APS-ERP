@@ -8,6 +8,7 @@ import {
   Select,
   Alert,
   managers,
+  editors,
   Empty,
   Action,
 } from "../ui";
@@ -17,12 +18,19 @@ export default function Academics({ user }) {
     teachers = useData("/teachers"),
     tables = useData("/timetable");
   const [error, setError] = useState("");
-  const manage = managers.includes(user.role);
+  const manage = editors.includes(user.role);
+  const [editing, setEditing] = useState(null);
   async function add(e, path, refresh) {
     e.preventDefault();
     const form = e.target;
     try {
-      await api.post(path, Object.fromEntries(new FormData(form)));
+      if (path === "/sections" && editing) {
+        await api.put(
+          `/sections/${editing._id}`,
+          Object.fromEntries(new FormData(form)),
+        );
+        setEditing(null);
+      } else await api.post(path, Object.fromEntries(new FormData(form)));
       form.reset();
       refresh();
       setError("");
@@ -42,7 +50,13 @@ export default function Academics({ user }) {
         <span>02 · Link staff & subjects</span>
         <span>03 · Generate, check & save</span>
       </div>
-      <Alert>{error || tables.error}</Alert>
+      <Alert>
+        {error ||
+          tables.error ||
+          departments.error ||
+          sections.error ||
+          teachers.error}
+      </Alert>
       <div className="quick-grid">
         <Link className="quick-card" to="/people">
           <h3>Teaching staff</h3>
@@ -68,27 +82,81 @@ export default function Academics({ user }) {
               {departments.data?.map((d) => (
                 <span className="badge" key={d._id}>
                   {d.name}
+                  {managers.includes(user.role) && (
+                    <>
+                      <Action
+                        className="ghost"
+                        run={async () => {
+                          const name = window.prompt("Department name", d.name);
+                          if (name?.trim())
+                            await api.put(`/departments/${d._id}`, { name });
+                        }}
+                        onDone={departments.refresh}
+                      >
+                        Rename
+                      </Action>
+                      <Action
+                        className="ghost"
+                        run={async () => {
+                          if (window.confirm("Delete this unused department?"))
+                            await api.delete(`/departments/${d._id}`);
+                        }}
+                        onDone={departments.refresh}
+                      >
+                        Delete
+                      </Action>
+                    </>
+                  )}
                 </span>
               ))}
             </div>
-            <form onSubmit={(e) => add(e, "/departments", departments.refresh)}>
-              <Field label="Department name" name="name" required />
-              <button className="button secondary">Add department</button>
-            </form>
+            {managers.includes(user.role) && (
+              <form
+                onSubmit={(e) => add(e, "/departments", departments.refresh)}
+              >
+                <Field label="Department name" name="name" required />
+                <button className="button secondary">Add department</button>
+              </form>
+            )}
+            {departments.data?.length === 0 && (
+              <Empty>
+                {user.role === "hod"
+                  ? "Ask an administrator to assign your department."
+                  : "Add your first department here, then create a section."}
+              </Empty>
+            )}
           </section>
           <section className="card">
-            <h3>Create section</h3>
+            <h3>{editing ? "Edit section" : "Create section"}</h3>
+            {!departments.data?.length && (
+              <p className="muted">
+                Create a department first. It will then appear in the dropdown
+                below.
+              </p>
+            )}
             <form
+              key={editing?._id || "new"}
               className="form-grid"
               onSubmit={(e) => add(e, "/sections", sections.refresh)}
             >
               <Field
                 label="Section name"
                 name="name"
+                defaultValue={editing?.name || ""}
                 placeholder="CSE A"
                 required
               />
-              <Select label="Department" name="departmentId" required>
+              <Select
+                label="Department"
+                name="departmentId"
+                required
+                defaultValue={
+                  editing?.departmentId?._id ||
+                  editing?.departmentId ||
+                  (user.role === "hod" ? user.departmentId : "")
+                }
+                disabled={!departments.data?.length}
+              >
                 <option value="">Choose department</option>
                 {departments.data?.map((d) => (
                   <option key={d._id} value={d._id}>
@@ -100,6 +168,7 @@ export default function Academics({ user }) {
                 label="Semester"
                 type="number"
                 name="semester"
+                defaultValue={editing?.semester || 1}
                 min="1"
                 max="8"
                 required
@@ -107,10 +176,22 @@ export default function Academics({ user }) {
               <Field
                 label="Classroom"
                 name="classroom"
+                defaultValue={editing?.classroom || ""}
                 placeholder="Room 201"
                 required
               />
-              <button className="button">Create section</button>
+              <button className="button" disabled={!departments.data?.length}>
+                {editing ? "Save section" : "Create section"}
+              </button>
+              {editing && (
+                <button
+                  className="button secondary"
+                  type="button"
+                  onClick={() => setEditing(null)}
+                >
+                  Cancel
+                </button>
+              )}
             </form>
           </section>
         </div>
@@ -150,6 +231,17 @@ export default function Academics({ user }) {
                           : "Not saved"}
                       </td>
                       <td>
+                        {manage && !tt && (
+                          <button
+                            className="button secondary small"
+                            onClick={() => {
+                              setEditing(s);
+                              window.scrollTo({ top: 0, behavior: "smooth" });
+                            }}
+                          >
+                            Edit section
+                          </button>
+                        )}
                         {manage && tt && (
                           <Action
                             className="button secondary small"

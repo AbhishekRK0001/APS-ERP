@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import api, { message } from "./api";
 export const managers = ["super_admin", "admin", "principal"];
+export const editors = [...managers, "hod"];
 export const staff = ["teacher", "class_teacher", "hod", "principal"];
 export const label = (s) =>
   String(s || "")
@@ -91,6 +92,7 @@ export function Action({ run, children, className = "button", onDone }) {
   return (
     <>
       <button
+        type="button"
         className={className}
         disabled={busy}
         onClick={async () => {
