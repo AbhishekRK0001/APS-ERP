@@ -1,31 +1,30 @@
 # Integration handoff — 24 September 2026
 
-Prepared from `main` commit `0a68d7f49682138bec04dd87b4bc71da2b3f5791` on local branch `integration/unified-erp`.
+The integration is published on `integration/unified-erp` in draft PR #3:
+https://github.com/AbhishekRK0001/APS-ERP/pull/3
+
+The earlier GitHub write-permission error is resolved. `main` remains unchanged.
 
 ## Implemented
 
-- One Express API and React/Vite frontend with shared cookie sessions and canonical user accounts.
-- First-time account activation, SMTP OTP delivery, role/department permissions and account freezing.
-- Saved timetable grids supply staff/student schedules and leave coverage; scheduling staff are explicitly linked to user accounts.
-- One leave application per date range, all-period coverage gate, transaction-backed acceptance and approvals, department review and balance posting.
-- Notices, scoped feed, notifications, attachments, approval rules and academic cycle management.
-- Root install/build/start commands, local replica-set compose configuration and CI workflow.
-- Committed environment files removed from this branch and replaced by placeholders. Rotate previously exposed credentials; history is not erased.
+- One Express API and React/Vite frontend with canonical users and shared cookie sessions.
+- Account activation, SMTP OTP delivery, role/department permissions and account freezing.
+- Saved timetable grids supply schedules and leave coverage through explicit staff-account links.
+- One leave application per date range, all-period coverage gate, transactional acceptance/approvals and balance posting.
+- Scoped notices, notifications, attachments, approval rules and academic cycle management.
+- Root setup/build/start commands, local replica-set configuration and GitHub Actions checks.
+- Committed environment files removed from the integration branch. Rotate exposed credentials; Git history and main still require separate attention.
 
 ## Verification
 
-- `npm test`: **49 passed, 0 failed** (existing generator/leave regressions plus shared policy/adapter tests).
-- `npm run build`: **passed**.
-- Six database integration tests have been added, but their shared MongoDB setup fails in this runtime (`Operation not permitted` / exit 100). Their application assertions have **not** been verified.
-- Browser layout checks have **not** been verified: Chromium could not be downloaded in the provided runtime.
-- No production or teammate database has been connected, changed or migrated. Use a fresh integration database and follow README.md.
+GitHub Actions run 35957032084 passed on implementation commit `a1758e46477b86719094afb4da451993b6acfaa7`:
+https://github.com/AbhishekRK0001/APS-ERP/actions/runs/35957032084
 
-## Publication blocker
+- 49 regression and policy tests: passed.
+- Production frontend build: passed.
+- 6 database integration tests using an isolated MongoDB replica set: passed. These exercise protected APIs, saved timetable projection, concurrent coverage acceptance, ordered/department-scoped leave approval, notice audience and attachments, activation, logout and frozen-account access.
+- Browser visual checks remain unverified because Chromium was unavailable in the local runtime.
 
-GitHub rejected creation of the integration tree with `403: Resource not accessible by integration`. The account-level repository response reports push access, but the connected app could not perform this write. No remote branch, commit or PR was created, and `main` remains unchanged.
+No teammate or production database has been changed or migrated. Use a fresh integration database and README.md for setup. Configure real SMTP, review institutional leave/holiday policies, rotate previously exposed credentials and complete campus user acceptance testing before deployment.
 
-The repository connection needs permission to write code and, for the included CI workflow, workflow files. Reauthorize the connection before publishing. Do not share credentials in chat.
-
-## Archive use
-
-Extract this snapshot into a **new folder**. It contains the complete source snapshot and no Git history, installed dependencies, generated builds or live environment files. Start at README.md. It is an integration candidate, not a production-certified release. GitHub publication and database/browser acceptance checks remain pending.
+The previously shared ZIP is the earlier local snapshot. The integration branch is now the current source of truth.
