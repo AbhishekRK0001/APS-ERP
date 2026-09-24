@@ -24,4 +24,4 @@ const TimetableSchema = new mongoose.Schema({
   days:    [DaySchema],
 }, { timestamps: true });
 
-module.exports = mongoose.model('Timetable', TimetableSchema);
+module.exports = mongoose.model('LegacyLeaveTimetable', TimetableSchema);

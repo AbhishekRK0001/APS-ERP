@@ -1,7 +1,9 @@
 const mongoose = require('mongoose');
 const Leave = require('../models/Leave');
 const SubstituteRequest = require('../models/SubstituteRequest');
-const Timetable = require('../models/Timetable');
+let Timetable = require('../models/Timetable');
+let integratedTransaction;
+function configure({timetableSource, transaction}) { Timetable = timetableSource; integratedTransaction = transaction; }
 const LeaveBalance = require('../models/LeaveBalance');
 const User = require('../models/User');
 const TYPES = ['casual', 'sick', 'emergency', 'paternity/maternity'];
@@ -28,6 +30,7 @@ function same(a, b) { return id(a) === id(b); }
 function key(d, p) { return `${new Date(d).toISOString().slice(0, 10)}:${p}`; }
 function confirmed(s) { return CONFIRMED.includes(s); }
 async function transaction(work) {
+  if (integratedTransaction) return integratedTransaction(work);
   let session = null;
   try { session = await mongoose.startSession(); } catch { return work(null); }
   try {
@@ -63,10 +66,11 @@ async function eligible(teacher, request, session) {
   if (same(teacher, request.absentTeacher)) return false;
   if (request.declinedBy?.some(d => same(d, teacher))) return false;
   const user = await User.findById(teacher).session(session);
-  if (!user || !['teacher', 'hod', 'principal'].includes(user.role)) return false;
+  if (!user || (user.status && user.status !== 'ACTIVE') || !['teacher', 'class_teacher', 'hod', 'principal'].includes(user.role)) return false;
   const tt = await Timetable.findOne({ teacher }).session(session);
-  const periods = tt?.days.find(d => d.dayOfWeek === request.dayOfWeek)?.periods || [];
-  if (!periods.some(p => p.className === request.className)) return false;
+  const applicable = p => (!p.validFrom || p.validFrom <= new Date(request.date).toISOString().slice(0,10)) && (!p.validTo || p.validTo >= new Date(request.date).toISOString().slice(0,10));
+  const periods = (tt?.days.find(d => d.dayOfWeek === request.dayOfWeek)?.periods || []).filter(applicable);
+  if (!(tt?.days || []).some(d => d.periods.some(p => p.className === request.className && applicable(p)))) return false;
   if (periods.some(p => p.periodNumber === request.periodNumber)) return false;
   if (await SubstituteRequest.exists({ substituteTeacher: teacher, date: request.date, periodNumber: request.periodNumber, status: { $in: CONFIRMED } }).session(session)) return false;
   if (await Leave.exists({ teacher, startDate: { $lte: request.date }, endDate: { $gte: request.date }, status: { $in: ACTIVE } }).session(session)) return false;
@@ -87,7 +91,7 @@ async function createCoverage(teacher, body) {
     }
     const tt = await Timetable.findOne({ teacher }).session(session);
     if (!tt) fail('You have no timetable assigned.');
-    const periods = days(start, end).flatMap(d => (tt.days.find(x => x.dayOfWeek === dayName(d))?.periods || []).map(p => ({ date: d, dayOfWeek: dayName(d), periodNumber: p.periodNumber, subject: p.subject, className: p.className, startTime: p.startTime, endTime: p.endTime, absentTeacher: teacher, status: 'open' })));
+    const periods = days(start, end).flatMap(d => (tt.days.find(x => x.dayOfWeek === dayName(d))?.periods || []).filter(p => (!p.validFrom || p.validFrom <= d.toISOString().slice(0,10)) && (!p.validTo || p.validTo >= d.toISOString().slice(0,10))).map(p => ({ date: d, dayOfWeek: dayName(d), periodNumber: p.periodNumber, subject: p.subject, className: p.className, startTime: p.startTime, endTime: p.endTime, absentTeacher: teacher, status: 'open' })));
     if (!periods.length) fail('No scheduled periods in this date range.');
     if (new Set(periods.map(p => key(p.date, p.periodNumber))).size !== periods.length) fail('Timetable contains duplicate period numbers.');
     const [leave] = await Leave.create([{ teacher, startDate: start, endDate: end, leaveType, status: 'coverage_pending' }], { session: session || undefined, ordered: true });
@@ -133,6 +137,7 @@ async function approve(leaveId, role) {
   return transaction(async session => {
     const leave = await Leave.findById(leaveId).session(session);
     if (!leave) fail('Leave not found.', 404);
+    await lock(session, [leave.teacher]);
     const expected = role === 'hod' ? 'submitted' : 'hod_approved';
     if (leave.status !== expected) fail('Leave is not at this approval stage.', 409);
     if (!(await coverage(leave, session)).complete) fail('Coverage is incomplete.', 409);
@@ -169,12 +174,14 @@ async function reject(leaveId, actor, reason) {
   return transaction(async session => {
     const leave = await Leave.findById(leaveId).session(session);
     if (!leave) fail('Leave not found.', 404);
+    await lock(session, [leave.teacher]);
     const allowed = actor.role === 'hod' ? ['submitted'] : ['hod_approved'];
     if (!allowed.includes(leave.status)) fail('Leave is not at your review stage.', 409);
     if (typeof reason !== 'string' || !reason.trim()) fail('Rejection reason is required.');
     const updated = await Leave.findOneAndUpdate({ _id: leaveId, status: leave.status }, { $set: { status: 'rejected', rejectedAt: new Date(), rejectedBy: actor._id, rejectionReason: reason.trim() } }, { new: true, session });
     if (!updated) fail('Review state changed.', 409);
+    if (integratedTransaction) await SubstituteRequest.updateMany({leave:leave._id}, {$set:{status:'cancelled'}}, {session});
     return updated;
   });
 }
-module.exports = { TYPES, ACTIVE, CONFIRMED, fail, date, range, days, dayName, id, same, key, confirmed, transaction, lock, coverage, eligible, createCoverage, accept, submit, approve, reject };
+module.exports = { configure, TYPES, ACTIVE, CONFIRMED, fail, date, range, days, dayName, id, same, key, confirmed, transaction, lock, coverage, eligible, createCoverage, accept, submit, approve, reject };

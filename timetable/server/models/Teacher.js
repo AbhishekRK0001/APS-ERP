@@ -14,6 +14,7 @@ const unavailableSlotSchema = new mongoose.Schema(
 
 const teacherSchema = new mongoose.Schema(
   {
+    userId: {type: mongoose.Schema.Types.ObjectId, ref: "User", unique: true, sparse: true},
     name: { type: String, required: true, trim: true },
     teacherId: { type: String, default: "", trim: true },
     email: { type: String, default: "", trim: true },
