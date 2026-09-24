@@ -198,35 +198,29 @@ test("generated previews save through the unified API and feed the staff schedul
   );
 });
 test("one application covers all periods; races have one winner; department approval is enforced", async () => {
-  const r = await agents.admin
-    .post("/api/substitutes/request")
-    .send({
-      teacherId: String(users.teacher._id),
-      startDate: day,
-      endDate: day,
-      leaveType: "casual",
-    });
+  const r = await agents.admin.post("/api/substitutes/request").send({
+    teacherId: String(users.teacher._id),
+    startDate: day,
+    endDate: day,
+    leaveType: "casual",
+  });
   assert.equal(r.status, 201, r.text);
   leaveId = r.body.leave._id;
   requestIds = r.body.requests.map((x) => x._id);
   assert.equal(requestIds.length, 2);
-  const duplicate = await agents.admin
-    .post("/api/substitutes/request")
-    .send({
-      teacherId: String(users.teacher._id),
-      startDate: day,
-      endDate: day,
-      leaveType: "casual",
-    });
+  const duplicate = await agents.admin.post("/api/substitutes/request").send({
+    teacherId: String(users.teacher._id),
+    startDate: day,
+    endDate: day,
+    leaveType: "casual",
+  });
   assert.equal(duplicate.body.leave._id, leaveId);
   assert.equal(
     (
-      await agents.admin
-        .patch(`/api/leaves/${leaveId}/details`)
-        .send({
-          teacherId: String(users.teacher._id),
-          reason: "Family commitment",
-        })
+      await agents.admin.patch(`/api/leaves/${leaveId}/details`).send({
+        teacherId: String(users.teacher._id),
+        reason: "Family commitment",
+      })
     ).status,
     409,
   );
@@ -250,12 +244,10 @@ test("one application covers all periods; races have one winner; department appr
   assert.equal((await agents.sub1.get("/api/substitutes/my")).body.length, 0);
   assert.equal(
     (
-      await agents.admin
-        .patch(`/api/leaves/${leaveId}/details`)
-        .send({
-          teacherId: String(users.teacher._id),
-          reason: "Family commitment",
-        })
+      await agents.admin.patch(`/api/leaves/${leaveId}/details`).send({
+        teacherId: String(users.teacher._id),
+        reason: "Family commitment",
+      })
     ).status,
     200,
   );
@@ -583,14 +575,12 @@ test("department and section setup populates options, enforces HOD scope and sem
     .post("/api/departments")
     .send({ name: "Mechanical" });
   assert.equal(dept.status, 201, dept.text);
-  const created = await agents.admin
-    .post("/api/sections")
-    .send({
-      name: "ME A",
-      departmentId: dept.body._id,
-      semester: 3,
-      classroom: "303",
-    });
+  const created = await agents.admin.post("/api/sections").send({
+    name: "ME A",
+    departmentId: dept.body._id,
+    semester: 3,
+    classroom: "303",
+  });
   assert.equal(created.status, 201, created.text);
   const id = created.body._id;
   assert.ok(
@@ -606,40 +596,34 @@ test("department and section setup populates options, enforces HOD scope and sem
   );
   assert.equal(
     (
-      await agents.hod
-        .post("/api/sections")
-        .send({
-          name: "Outside",
-          departmentId: dept.body._id,
-          semester: 3,
-          classroom: "303",
-        })
+      await agents.hod.post("/api/sections").send({
+        name: "Outside",
+        departmentId: dept.body._id,
+        semester: 3,
+        classroom: "303",
+      })
     ).status,
     403,
   );
-  const own = await agents.hod
-    .post("/api/sections")
-    .send({
-      name: "CSE C",
-      departmentId: String(departments.cse._id),
-      semester: 3,
-      classroom: "305",
-    });
+  const own = await agents.hod.post("/api/sections").send({
+    name: "CSE C",
+    departmentId: String(departments.cse._id),
+    semester: 3,
+    classroom: "305",
+  });
   assert.equal(own.status, 201, own.text);
   assert.equal(
     (await agents.hod.get("/api/sections")).body.some((s) => s._id === id),
     false,
   );
-  const mismatch = await agents.admin
-    .post("/api/users")
-    .send({
-      name: "Wrong semester",
-      email: "wrong-sem@test.invalid",
-      role: "student",
-      departmentId: dept.body._id,
-      sectionId: id,
-      currentSemester: 1,
-    });
+  const mismatch = await agents.admin.post("/api/users").send({
+    name: "Wrong semester",
+    email: "wrong-sem@test.invalid",
+    role: "student",
+    departmentId: dept.body._id,
+    sectionId: id,
+    currentSemester: 1,
+  });
   assert.equal(mismatch.status, 400);
   assert.equal(
     (
@@ -665,6 +649,130 @@ test("department and section setup populates options, enforces HOD scope and sem
   );
   assert.equal(
     (await agents.hod.delete(`/api/sections/${own.body._id}`).send({})).status,
+    200,
+  );
+});
+
+test("account removal enforces authority, confirmation, and Super Admin protection", async () => {
+  const pending = await User.create({
+    name: "Disposable",
+    email: "remove@test.invalid",
+    password: "unused",
+    role: "student",
+    status: "PENDING",
+  });
+  for (const actor of ["student", "teacher", "hod", "principal"])
+    assert.equal(
+      (
+        await agents[actor]
+          .delete(`/api/users/${pending._id}`)
+          .send({ confirmEmail: pending.email })
+      ).status,
+      403,
+    );
+  assert.equal(
+    (
+      await agents.admin
+        .delete(`/api/users/${users.admin._id}`)
+        .send({ confirmEmail: users.admin.email })
+    ).status,
+    403,
+  );
+  assert.equal(
+    (await agents.admin.post(`/api/users/${users.admin._id}/archive`).send({}))
+      .status,
+    403,
+  );
+  assert.equal(
+    (
+      await agents.admin
+        .delete(`/api/users/${pending._id}`)
+        .send({ confirmEmail: "wrong" })
+    ).status,
+    400,
+  );
+  await Activation.create({
+    userId: pending._id,
+    hash: "code",
+    expiresAt: new Date(Date.now() + 60000),
+  });
+  await Session.create({
+    userId: pending._id,
+    hash: "temporary-session",
+    expiresAt: new Date(Date.now() + 60000),
+  });
+  assert.equal(
+    (
+      await agents.admin
+        .delete(`/api/users/${pending._id}`)
+        .send({ confirmEmail: pending.email })
+    ).status,
+    200,
+  );
+  assert.equal(await User.findById(pending._id), null);
+  assert.equal(await Activation.countDocuments({ userId: pending._id }), 0);
+  assert.equal(await Session.countDocuments({ userId: pending._id }), 0);
+  assert.equal(
+    (
+      await agents.admin
+        .delete(`/api/users/${pending._id}`)
+        .send({ confirmEmail: pending.email })
+    ).status,
+    404,
+  );
+});
+
+test("archive revokes access and deletion preserves linked campus history", async () => {
+  const account = await User.create({
+    name: "Archive example",
+    email: "archive@test.invalid",
+    password: await bcrypt.hash("Test-password-123!", 4),
+    role: "teacher",
+    status: "ACTIVE",
+  });
+  const agent = request.agent(app);
+  assert.equal(
+    (
+      await agent
+        .post("/api/auth/login")
+        .send({ identifier: account.email, password: "Test-password-123!" })
+    ).status,
+    200,
+  );
+  assert.equal(
+    (
+      await agents.admin
+        .delete(`/api/users/${account._id}`)
+        .send({ confirmEmail: account.email })
+    ).status,
+    409,
+  );
+  await Teacher.create({
+    userId: account._id,
+    name: "Archive example",
+    teacherId: "archive-example",
+  });
+  assert.equal(
+    (await agents.admin.post(`/api/users/${account._id}/archive`).send({}))
+      .status,
+    200,
+  );
+  assert.equal((await User.findById(account._id)).status, "TERMINATED");
+  assert.equal(await Session.countDocuments({ userId: account._id }), 0);
+  assert.equal((await agent.get("/api/auth/me")).status, 401);
+  const blocked = await agents.admin
+    .delete(`/api/users/${account._id}`)
+    .send({ confirmEmail: account.email });
+  assert.equal(blocked.status, 409, blocked.text);
+  assert.match(blocked.body.message, /linked Teacher/);
+  assert.ok(await User.findById(account._id));
+  await Teacher.deleteOne({ userId: account._id });
+  assert.equal(
+    (
+      await agents.admin
+        .delete(`/api/users/${account._id}`)
+        .send({ confirmEmail: account.email })
+    ).status,
     200,
   );
 });

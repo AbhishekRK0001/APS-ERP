@@ -178,6 +178,13 @@ export default function People({ user }) {
       </details>
       <section className="card">
         <h2>Campus directory</h2>
+        {["admin", "super_admin"].includes(user.role) && (
+          <p className="muted">
+            Archive blocks access and preserves history. Permanent deletion is
+            available for inactive accounts without linked campus records. Your
+            own account and Super Admin accounts are protected.
+          </p>
+        )}
         {people.data?.length ? (
           <div className="table-wrap">
             <table>
@@ -198,10 +205,57 @@ export default function People({ user }) {
                     </td>
                     <td>{label(p.role)}</td>
                     <td>
-                      <Badge>{p.status}</Badge>
+                      <Badge>
+                        {p.status === "TERMINATED" ? "ARCHIVED" : p.status}
+                      </Badge>
                     </td>
                     <td>
                       <div className="inline-actions">
+                        {["admin", "super_admin"].includes(user.role) &&
+                          ranks[user.role] > ranks[p.role] &&
+                          user._id !== p._id && (
+                            <>
+                              {p.status !== "TERMINATED" && (
+                                <Action
+                                  className="button secondary small"
+                                  run={async () => {
+                                    if (
+                                      !window.confirm(
+                                        `Archive ${p.name} (${p.email})? This blocks access and preserves their records.`,
+                                      )
+                                    )
+                                      return;
+                                    const r = await api.post(
+                                      `/users/${p._id}/archive`,
+                                    );
+                                    setInfo(r.data.message);
+                                  }}
+                                  onDone={people.refresh}
+                                >
+                                  Archive account
+                                </Action>
+                              )}
+                              {!["ACTIVE", "ALUMNI"].includes(p.status) && (
+                                <Action
+                                  className="button secondary small"
+                                  run={async () => {
+                                    const confirmEmail = window.prompt(
+                                      `Permanently delete ${p.name}? This cannot be undone. Enter ${p.email} to confirm. Accounts with linked records cannot be deleted.`,
+                                    );
+                                    if (confirmEmail === null) return;
+                                    const r = await api.delete(
+                                      `/users/${p._id}`,
+                                      { data: { confirmEmail } },
+                                    );
+                                    setInfo(r.data.message);
+                                  }}
+                                  onDone={people.refresh}
+                                >
+                                  Delete permanently
+                                </Action>
+                              )}
+                            </>
+                          )}
                         {p.role === "student" &&
                           ranks[user.role] > ranks.student && (
                             <select
@@ -297,9 +351,12 @@ export default function People({ user }) {
                               Link to timetable
                             </Action>
                           )}
-                        {!["REQUESTED", "REJECTED", "PENDING"].includes(
-                          p.status,
-                        ) &&
+                        {![
+                          "REQUESTED",
+                          "REJECTED",
+                          "PENDING",
+                          "TERMINATED",
+                        ].includes(p.status) &&
                           ranks[user.role] > ranks[p.role] && (
                             <Action
                               className="button secondary small"

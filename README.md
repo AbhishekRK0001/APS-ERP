@@ -84,3 +84,17 @@ Remaining production rollout work: configure real SMTP and database hosting, rot
 - Management can edit/delete unused departments and sections, set staff teaching constraints, assign account sections, and edit/delete notices. Saved schedules and live leave dependencies still block changes that would invalidate records.
 
 GitHub Actions validates Compose syntax, regression tests, the production build, database integration workflows, and browser checks of all seven roles, section creation, mobile navigation and account requests. Browser checks use fixture API responses; database tests separately verify real authorization and persistence. To run browser checks locally after `npm run build`: `npm install --no-save --package-lock=false playwright@1.62.1`, `npx playwright install chromium`, then `node frontend/tests/smoke.cjs`.
+
+### Removing test or departed accounts
+
+In **People & access**, Admin and Super Admin can remove lower-ranked accounts.
+**Archive account** blocks sign-in and clears sessions and activation codes while
+preserving campus records. Archived accounts remain visible with an ARCHIVED badge.
+**Delete permanently** is available for inactive (including pending/rejected)
+accounts and requires typing the exact account email. Active/alumni accounts must
+be frozen or archived first. The server refuses deletion when campus records or
+scheduling profiles reference the account; use archive to retain that history.
+Unlinked accounts are deleted together with their sessions, activation codes and
+notification read receipts in a transaction. Your own account, every Super Admin,
+and accounts at or above your role are protected. No accounts are removed by
+installing this update. Freezing remains the reversible option for temporary blocks.

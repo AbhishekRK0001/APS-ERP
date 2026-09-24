@@ -3,11 +3,79 @@ const bcrypt = require("bcryptjs");
 const crypto = require("node:crypto");
 const User = require("../models/User");
 const Session = require("../models/Session");
+const mongoose = require("mongoose");
+const Activation = require("../models/Activation");
+const NotificationRead = require("../models/NotificationRead");
 const Department = require("../../timetable/server/models/Department");
 const Section = require("../../timetable/server/models/Section");
 const { authorize, publicUser } = require("../lib/auth");
 const { ranks, managers, fail, same, canCreate } = require("../lib/policy");
 router.use(authorize("super_admin", "admin", "principal", "hod"));
+async function removableAccount(req) {
+  const user = await User.findById(req.params.id);
+  if (!user) fail("Account not found.", 404);
+  if (same(user._id, req.user._id) || user.role === "super_admin")
+    fail("Your own account and Super Admin accounts cannot be removed.", 403);
+  if (!canCreate(req.user, user.role, user.departmentId, user.sectionId))
+    fail("Account is outside your authority.", 403);
+  return user;
+}
+router.post(
+  "/:id/archive",
+  authorize("admin", "super_admin"),
+  async (req, res) => {
+    await mongoose.connection.transaction(async () => {
+      const user = await removableAccount(req);
+      user.status = "TERMINATED";
+      await user.save();
+      await Session.deleteMany({ userId: user._id });
+      await Activation.deleteMany({ userId: user._id });
+    });
+    res.json({
+      message:
+        "Account archived. Access is blocked; campus history is preserved.",
+    });
+  },
+);
+router.delete("/:id", authorize("admin", "super_admin"), async (req, res) => {
+  await mongoose.connection.transaction(async () => {
+    const user = await removableAccount(req);
+    if (req.body.confirmEmail !== user.email)
+      fail("Enter the account email exactly to confirm permanent deletion.");
+    if (["ACTIVE", "ALUMNI"].includes(user.status))
+      fail("Archive or freeze this account before deleting it.", 409);
+    // Check every loaded campus model's declared User references. Personal
+    // credentials/read receipts are disposable; history and profiles are not.
+    const disposable = new Set(["Session", "Activation", "NotificationRead"]);
+    for (const model of Object.values(mongoose.models)) {
+      if (disposable.has(model.modelName)) continue;
+      const references = [];
+      function collect(schema, prefix = "") {
+        schema.eachPath((name, type) => {
+          const field = prefix + name;
+          if (
+            type.options?.ref === "User" ||
+            type.caster?.options?.ref === "User" ||
+            type.$embeddedSchemaType?.options?.ref === "User"
+          )
+            references.push({ [field]: user._id });
+          if (type.schema) collect(type.schema, field + ".");
+        });
+      }
+      collect(model.schema);
+      if (references.length && (await model.exists({ $or: references })))
+        fail(
+          `This account has linked ${model.modelName} records. Keep it archived to preserve campus history.`,
+          409,
+        );
+    }
+    await Session.deleteMany({ userId: user._id });
+    await Activation.deleteMany({ userId: user._id });
+    await NotificationRead.deleteMany({ userId: user._id });
+    await User.deleteOne({ _id: user._id });
+  });
+  res.json({ message: "Account permanently deleted." });
+});
 router.get("/", async (req, res) => {
   const filter = managers.includes(req.user.role)
     ? {}
@@ -92,10 +160,10 @@ router.patch("/:id/status", async (req, res) => {
     fail("Account is outside your authority.", 403);
   if (
     !["ACTIVE", "FROZEN", "TERMINATED"].includes(req.body.status) ||
-    ["REQUESTED", "REJECTED", "PENDING"].includes(user.status)
+    ["REQUESTED", "REJECTED", "PENDING", "TERMINATED"].includes(user.status)
   )
     fail(
-      "Pending accounts must complete activation; otherwise choose active, frozen or terminated.",
+      "Pending accounts must complete activation and archived accounts cannot be reactivated here.",
     );
   user.status = req.body.status;
   await user.save();
