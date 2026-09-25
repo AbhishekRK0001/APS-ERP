@@ -1,0 +1,36 @@
+{
+  "name": "aps-erp",
+  "version": "1.0.0",
+  "private": true,
+  "engines": {
+    "node": ">=22.12"
+  },
+  "workspaces": [
+    "frontend"
+  ],
+  "scripts": {
+    "dev": "concurrently -k \"npm:dev:server\" \"npm:dev:client\"",
+    "dev:server": "node --watch backend/server.js",
+    "dev:client": "npm run dev --workspace frontend",
+    "start": "node backend/server.js",
+    "build": "npm run build --workspace frontend",
+    "bootstrap": "node backend/scripts/bootstrap.js",
+    "test": "node --test backend/tests/*.test.js timetable/test/*.test.js leave-management/backend/tests/*.test.js",
+    "test:integration": "node --test backend/tests/integration/*.test.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.3.2",
+    "mongoose": "^9.4.1",
+    "multer": "^2.0.2",
+    "nodemailer": "^8.0.5"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "mongodb-memory-server": "^10.3.0",
+    "prettier": "^3.9.9",
+    "supertest": "^7.2.2"
+  }
+}

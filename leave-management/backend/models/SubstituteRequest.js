@@ -11,7 +11,7 @@ const SubstituteRequestSchema = new mongoose.Schema({
   substituteTeacher: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
   leave: { type: mongoose.Schema.Types.ObjectId, ref: 'Leave', default: null },
   declinedBy: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
-  status: { type: String, enum: ['open', 'accepted', 'declined_all', 'hod_approved', 'principal_approved'], default: 'open' },
+  status: { type: String, enum: ['open', 'accepted', 'declined_all', 'cancelled', 'hod_approved', 'principal_approved'], default: 'open' },
 }, { timestamps: true });
 SubstituteRequestSchema.index({ leave: 1, date: 1, periodNumber: 1 }, { unique: true, partialFilterExpression: { leave: { $type: 'objectId' } } });
 SubstituteRequestSchema.index({ substituteTeacher: 1, date: 1, periodNumber: 1 }, { unique: true, partialFilterExpression: { substituteTeacher: { $type: 'objectId' }, status: { $in: ['accepted', 'hod_approved', 'principal_approved'] } } });
