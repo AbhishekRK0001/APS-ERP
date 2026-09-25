@@ -15,6 +15,7 @@ import {
 export default function Leave({
   user,
   readOnly = true,
+  appealOnly = false,
   teacherId = "",
   onChanged,
   revision = 0,
@@ -23,11 +24,12 @@ export default function Leave({
     path + (teacherId ? `?teacherId=${encodeURIComponent(teacherId)}` : "");
   const [tab, setTab] = useState("mine");
   const mine = useData(scoped("/leaves/my")),
-    incoming = useData(scoped("/substitutes/my")),
-    accepted = useData(scoped("/substitutes/accepted")),
+    incoming = useData(appealOnly ? null : scoped("/substitutes/my")),
+    accepted = useData(appealOnly ? null : scoped("/substitutes/accepted")),
     balance = useData(scoped("/leaves/balance")),
     sections = useData("/sections");
   const [error, setError] = useState(""),
+    [info, setInfo] = useState(""),
     [busy, setBusy] = useState(false);
   const refresh = () => {
     mine.refresh();
@@ -56,10 +58,11 @@ export default function Leave({
     setError("");
     setBusy(true);
     try {
-      await api.post(
+      const result = await api.post(
         scoped("/substitutes/request"),
         Object.fromEntries(new FormData(e.target)),
       );
+      setInfo(result.data.message || "Leave appeal submitted.");
       refresh();
     } catch (e) {
       setError(message(e));
@@ -73,6 +76,18 @@ export default function Leave({
         title={teacherId ? `Leave records · ${user.name}` : "Leave Management"}
         eyebrow="KEEP EVERY CLASS COVERED"
       />
+      {appealOnly && (
+        <p className="muted">
+          Submit your own leave appeal and track its status here. Management
+          arranges substitute coverage and reviews the application. Once
+          coverage is confirmed, submit your reason below.
+        </p>
+      )}
+      {info && (
+        <p className="success" role="status">
+          {info}
+        </p>
+      )}
       {readOnly && (
         <p className="muted">
           Your leave records and coverage assignments are read-only. Contact
@@ -96,16 +111,22 @@ export default function Leave({
               : "—"}
           </strong>
         </div>
-        <div>
-          <small>Coverage requests for you</small>
-          <strong>{incoming.data?.length ?? "—"}</strong>
-        </div>
+        {!appealOnly && (
+          <div>
+            <small>Coverage requests for you</small>
+            <strong>{incoming.data?.length ?? "—"}</strong>
+          </div>
+        )}
       </div>
       <div className="tabs">
         {[
           ["mine", "My applications"],
-          ["incoming", "Substitute requests"],
-          ["accepted", "My cover assignments"],
+          ...(!appealOnly
+            ? [
+                ["incoming", "Substitute requests"],
+                ["accepted", "My cover assignments"],
+              ]
+            : []),
           ...(reviewer ? [["review", "Review applications"]] : []),
         ].map(([key, name]) => (
           <button
@@ -129,7 +150,9 @@ export default function Leave({
         <>
           {!readOnly && (
             <section className="card">
-              <h2>Record leave for {user.name}</h2>
+              <h2>
+                {appealOnly ? "Request leave" : `Record leave for ${user.name}`}
+              </h2>
               <p className="muted">
                 One application for the entire date range. Submit the reason
                 after every scheduled period has an accepted substitute.
@@ -160,7 +183,11 @@ export default function Leave({
                 </Select>
                 <div className="form-end">
                   <button className="button" disabled={busy}>
-                    {busy ? "Requesting…" : "Request substitute coverage"}
+                    {busy
+                      ? "Requesting…"
+                      : appealOnly
+                        ? "Submit leave appeal"
+                        : "Request substitute coverage"}
                   </button>
                 </div>
               </form>
@@ -428,7 +455,7 @@ export function ReadOnlyLeave({ user }) {
         </Empty>
       </>
     );
-  return <Leave user={user} readOnly />;
+  return <Leave user={user} readOnly={false} appealOnly />;
 }
 export function ManagedLeave({ user }) {
   const people = useData("/users");

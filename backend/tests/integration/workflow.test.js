@@ -241,7 +241,11 @@ test("one application covers all periods; races have one winner; department appr
     ).status,
     200,
   );
-  assert.equal((await agents.sub1.get("/api/substitutes/my")).body.length, 0);
+  assert.equal(
+    (await agents.admin.get(`/api/substitutes/my?teacherId=${users.sub1._id}`))
+      .body.length,
+    0,
+  );
   assert.equal(
     (
       await agents.admin.patch(`/api/leaves/${leaveId}/details`).send({
@@ -401,8 +405,9 @@ test("teachers and class teachers have read-only campus access, including direct
       ["post", "/api/teachers"],
       ["post", "/api/notices"],
       ["post", "/api/uploads/notices"],
-      ["post", "/api/substitutes/request"],
-      ["patch", `/api/leaves/${leaveId}/details`],
+      ["patch", `/api/substitutes/${requestIds[0]}/accept`],
+      ["patch", `/api/substitutes/${requestIds[0]}/decline`],
+      ["patch", `/api/leaves/${leaveId}/reject`],
       ["patch", `/api/leaves/${leaveId}/approve`],
       ["patch", `/api/notices/${new mongoose.Types.ObjectId()}`],
       ["post", "/api/academic-cycle/advance"],
@@ -1009,11 +1014,166 @@ test("submitted rejection cancels accepted assignments, keeps history and releas
     await Request.countDocuments({ leave: id, status: "cancelled" }),
     created.body.requests.length,
   );
-  const covers = await agents.sub1.get("/api/substitutes/accepted");
+  const covers = await agents.admin.get(
+    `/api/substitutes/accepted?teacherId=${users.sub1._id}`,
+  );
   assert.ok(!covers.body.some((r) => r.leave === id));
   assert.ok(
     !(await agents.admin.get("/api/leaves/review")).body.some(
       (l) => l._id === id,
     ),
+  );
+});
+
+test("teachers and class teachers may appeal and submit only their own leave, with management-only coverage", async () => {
+  const classProfile = await Teacher.create({
+    name: "Class teacher",
+    teacherId: "class-teacher",
+    userId: users.classTeacher._id,
+  });
+  const ownSection = await Section.create({
+    name: "Class teacher section",
+    semester: 1,
+    classroom: "class-teacher-room",
+    departmentId: departments.cse._id,
+  });
+  const grid = Array.from({ length: 6 }, () => Array(9).fill(null));
+  grid[0][0] = {
+    teacherId: String(classProfile._id),
+    subjectName: "Class teacher lesson",
+  };
+  grid[0][1] = {
+    teacherId: String(teacherProfiles.sub1._id),
+    subjectName: "Substitute lesson",
+  };
+  await Timetable.create({
+    sectionId: ownSection._id,
+    semester: 1,
+    classroom: ownSection.classroom,
+    workingPeriod: { startDate: day, endDate: "2035-12-31" },
+    grid,
+  });
+  for (const [index, actor] of ["teacher", "classTeacher"].entries()) {
+    const next = new Date(day);
+    next.setUTCDate(next.getUTCDate() + 21 + index * 7);
+    const date = next.toISOString().slice(0, 10);
+    const body = { startDate: date, endDate: date, leaveType: "sick" };
+    assert.equal(
+      (
+        await agents[actor]
+          .post("/api/substitutes/request")
+          .send({ ...body, teacherId: String(users.sub2._id) })
+      ).status,
+      403,
+    );
+    assert.equal(
+      (
+        await agents[actor]
+          .post(`/api/substitutes/request?teacherId=${users.sub2._id}`)
+          .send(body)
+      ).status,
+      403,
+    );
+    const created = await agents[actor]
+      .post("/api/substitutes/request")
+      .send(body);
+    assert.equal(created.status, 201, created.text);
+    assert.equal(created.body.leave.teacher, String(users[actor]._id));
+    const id = created.body.leave._id;
+    assert.equal(
+      (
+        await agents[actor]
+          .patch(`/api/leaves/${id}/details`)
+          .send({ reason: "Sick leave" })
+      ).status,
+      409,
+    );
+    assert.equal(
+      (
+        await agents[actor]
+          .patch(`/api/leaves/${leaveId}/details`)
+          .send({ teacherId: String(users.sub2._id), reason: "Other person" })
+      ).status,
+      403,
+    );
+    for (const url of [
+      "/api/leaves/all",
+      "/api/leaves/review",
+      "/api/substitutes/my",
+      "/api/substitutes/accepted",
+    ])
+      assert.equal((await agents[actor].get(url)).status, 403);
+    for (const action of ["accept", "decline"])
+      assert.equal(
+        (
+          await agents[actor]
+            .patch(`/api/substitutes/${created.body.requests[0]._id}/${action}`)
+            .send({})
+        ).status,
+        403,
+      );
+    for (const action of ["approve", "reject"])
+      assert.equal(
+        (
+          await agents[actor]
+            .patch(`/api/leaves/${id}/${action}`)
+            .send({ reason: "Attempt" })
+        ).status,
+        403,
+      );
+    // Management still arranges all coverage on behalf of the substitute.
+    // sub2 teaches the original section; sub1 teaches the class-teacher section.
+    const substitute = actor === "teacher" ? users.sub2 : users.sub1;
+    for (const r of created.body.requests) {
+      const accepted = await agents.admin
+        .patch(`/api/substitutes/${r._id}/accept`)
+        .send({ teacherId: String(substitute._id) });
+      assert.equal(accepted.status, 200, accepted.text);
+    }
+    const submitted = await agents[actor]
+      .patch(`/api/leaves/${id}/details`)
+      .send({ reason: "Sick leave" });
+    assert.equal(submitted.status, 200, submitted.text);
+    assert.equal(submitted.body.status, "submitted");
+    const records = await agents[actor].get("/api/leaves/my");
+    assert.ok(
+      records.body.some((l) => l._id === id && l.status === "submitted"),
+    );
+    assert.ok(
+      records.body.every((l) => l.teacher._id === String(users[actor]._id)),
+    );
+    assert.equal(
+      (
+        await agents.hod
+          .patch(`/api/leaves/${id}/reject`)
+          .send({ reason: "Reviewed" })
+      ).status,
+      200,
+    );
+    assert.ok(
+      (await agents[actor].get("/api/leaves/my")).body.some(
+        (l) => l._id === id && l.status === "rejected",
+      ),
+    );
+  }
+  assert.equal(
+    (await agents.student.post("/api/substitutes/request").send({})).status,
+    403,
+  );
+  assert.equal(
+    (
+      await agents.student
+        .patch(`/api/leaves/${leaveId}/details`)
+        .send({ reason: "Not allowed" })
+    ).status,
+    403,
+  );
+  assert.equal(
+    (
+      await agents.classTeacher
+        .patch(`/api/leaves/${leaveId}/details`)
+        .send({ reason: "Someone else's leave" })
+    ).status,
+    404,
   );
 });

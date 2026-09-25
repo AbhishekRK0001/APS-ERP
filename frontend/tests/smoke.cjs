@@ -314,6 +314,70 @@ let base;
         "PASS: rejecting a pending coverage appeal refreshes status and rejection reason",
       );
     }
+    for (const role of ["teacher", "class_teacher"]) {
+      const f = await fixture(browser, role),
+        p = f.page;
+      const appeals = [];
+      await p.route("**/api/leaves/my", (route) =>
+        route.fulfill({ json: appeals }),
+      );
+      await p.route("**/api/substitutes/request", async (route) => {
+        const body = route.request().postDataJSON();
+        assert.equal(body.teacherId, undefined);
+        appeals.push({
+          _id: "own-appeal",
+          startDate: body.startDate,
+          endDate: body.endDate,
+          leaveType: body.leaveType,
+          status: "coverage_pending",
+          substituteRequests: [],
+        });
+        await route.fulfill({
+          status: 201,
+          json: { message: "Leave appeal submitted." },
+        });
+      });
+      await p.route("**/api/leaves/own-appeal/details", async (route) => {
+        assert.equal(
+          route.request().postDataJSON().reason,
+          "Medical appointment",
+        );
+        appeals[0].status = "submitted";
+        await route.fulfill({ json: appeals[0] });
+      });
+      await p.locator('nav a[href="/leave"]').click();
+      await p.getByLabel("Start date", { exact: true }).fill("2030-01-07");
+      await p.getByLabel("End date", { exact: true }).fill("2030-01-07");
+      await p
+        .getByRole("button", { name: "Submit leave appeal", exact: true })
+        .click();
+      await p.getByText("Coverage Pending", { exact: true }).waitFor();
+      assert.equal(
+        await p
+          .getByRole("button", {
+            name: /Substitute requests|My cover assignments|Assign selected|Approve application|Reject/,
+          })
+          .count(),
+        0,
+      );
+      appeals[0].status = "substitute_confirmed";
+      await p.reload();
+      await p
+        .getByLabel("Reason for leave", { exact: true })
+        .fill("Medical appointment");
+      await p
+        .getByRole("button", {
+          name: "Submit one leave application",
+          exact: true,
+        })
+        .click();
+      await p.getByText("Submitted", { exact: true }).waitFor();
+      assert.deepEqual(f.errors, []);
+      await f.context.close();
+      console.log(
+        `PASS: ${role} can appeal and track status without management controls`,
+      );
+    }
   } finally {
     await browser.close();
     server.close();

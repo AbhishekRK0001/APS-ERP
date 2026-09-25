@@ -13,6 +13,7 @@ export function useData(path) {
   const active = useRef(null);
   const refresh = useCallback(() => {
     active.current?.abort();
+    if (!path) return Promise.resolve();
     const controller = new AbortController();
     active.current = controller;
     return api

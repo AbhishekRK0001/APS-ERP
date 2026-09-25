@@ -11,9 +11,13 @@ router.use(async (req, res, next) => {
   const writing = !["GET", "HEAD", "OPTIONS"].includes(req.method);
   // This router is mounted at /api, so do not intercept other modules.
   if (!/^\/(leaves|substitutes)(\/|$)/.test(req.path)) return next();
-  if (writing && !editors.includes(req.user.role))
+  const ownAppeal =
+    ["teacher", "class_teacher"].includes(req.user.role) &&
+    ((req.method === "POST" && req.path === "/substitutes/request") ||
+      (req.method === "PATCH" && /^\/leaves\/[^/]+\/details$/.test(req.path)));
+  if (writing && !editors.includes(req.user.role) && !ownAppeal)
     fail(
-      "Your account has read-only access. Contact campus management for leave changes.",
+      "You may submit your own leave appeal only. Coverage and reviews are managed by campus management.",
       403,
     );
   req.leaveUser = req.user;
@@ -62,7 +66,7 @@ router.post("/substitutes/request", teachers, async (req, res) => {
     fail("Choose an active teaching account first.");
   res.status(201).json(await W.createCoverage(req.leaveUser._id, req.body));
 });
-router.get("/substitutes/my", teachers, async (req, res) => {
+router.get("/substitutes/my", reviewers, async (req, res) => {
   const requests = await Request.find({
     status: "open",
     absentTeacher: { $ne: req.leaveUser._id },
@@ -82,7 +86,7 @@ router.get("/substitutes/my", teachers, async (req, res) => {
       relevant.push(request);
   res.json(relevant);
 });
-router.get("/substitutes/accepted", teachers, async (req, res) =>
+router.get("/substitutes/accepted", reviewers, async (req, res) =>
   res.json(
     await Request.find({
       substituteTeacher: req.leaveUser._id,
