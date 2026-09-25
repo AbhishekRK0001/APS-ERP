@@ -217,11 +217,9 @@ let base;
       await p
         .getByRole("heading", { name: "Create section", exact: true })
         .waitFor();
-      const form = p
-        .locator("form")
-        .filter({
-          has: p.getByRole("button", { name: "Create section", exact: true }),
-        });
+      const form = p.locator("form").filter({
+        has: p.getByRole("button", { name: "Create section", exact: true }),
+      });
       await form.getByLabel("Section name").fill("CSE B");
       await form.getByLabel("Department", { exact: true }).selectOption("d1");
       await form.getByLabel("Semester", { exact: true }).fill("3");
@@ -273,6 +271,48 @@ let base;
       assert.deepEqual(f.errors, []);
       await f.context.close();
       console.log("PASS: admin account approval refreshes request queue");
+    }
+    {
+      const f = await fixture(browser, "super_admin"),
+        p = f.page;
+      const appeal = {
+        _id: "leave-test",
+        teacher: { _id: "teacher-test", name: "Leave Teacher" },
+        status: "coverage_pending",
+        startDate: "2026-10-01",
+        endDate: "2026-10-01",
+        leaveType: "casual",
+        substituteRequests: [],
+      };
+      await p.route("**/api/leaves/all", (route) =>
+        route.fulfill({ json: [appeal] }),
+      );
+      await p.route("**/api/leaves/leave-test/reject", async (route) => {
+        const body = route.request().postDataJSON();
+        assert.equal(body.reason, "Coverage appeal withdrawn");
+        appeal.status = "rejected";
+        appeal.rejectionReason = body.reason;
+        await route.fulfill({ json: appeal });
+      });
+      await p.locator('nav a[href="/leave"]').click();
+      p.once("dialog", (dialog) => dialog.accept("Coverage appeal withdrawn"));
+      await p
+        .getByRole("button", { name: "Reject leave appeal", exact: true })
+        .click();
+      await p
+        .getByText("Rejected: Coverage appeal withdrawn", { exact: true })
+        .waitFor();
+      assert.equal(
+        await p
+          .getByRole("button", { name: "Reject leave appeal", exact: true })
+          .count(),
+        0,
+      );
+      assert.deepEqual(f.errors, []);
+      await f.context.close();
+      console.log(
+        "PASS: rejecting a pending coverage appeal refreshes status and rejection reason",
+      );
     }
   } finally {
     await browser.close();

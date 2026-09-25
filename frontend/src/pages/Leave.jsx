@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import api, { message } from "../api";
 import {
   Heading,
@@ -17,6 +17,7 @@ export default function Leave({
   readOnly = true,
   teacherId = "",
   onChanged,
+  revision = 0,
 }) {
   const scoped = (path) =>
     path + (teacherId ? `?teacherId=${encodeURIComponent(teacherId)}` : "");
@@ -35,6 +36,18 @@ export default function Leave({
     balance.refresh();
     onChanged?.();
   };
+  useEffect(() => {
+    mine.refresh();
+    incoming.refresh();
+    accepted.refresh();
+    balance.refresh();
+  }, [
+    revision,
+    mine.refresh,
+    incoming.refresh,
+    accepted.refresh,
+    balance.refresh,
+  ]);
   const className = (id) =>
     sections.data?.find((s) => s._id === id)?.name || id;
   const reviewer = false;
@@ -165,15 +178,27 @@ export default function Leave({
                 <p>
                   {label(l.leaveType)} ·{" "}
                   {
-                    l.substituteRequests.filter((r) => r.substituteTeacher)
-                      .length
+                    l.substituteRequests.filter(
+                      (r) =>
+                        [
+                          "accepted",
+                          "hod_approved",
+                          "principal_approved",
+                        ].includes(r.status) && r.substituteTeacher,
+                    ).length
                   }{" "}
                   / {l.substituteRequests.length} periods covered
                 </p>
                 <progress
                   value={
-                    l.substituteRequests.filter((r) => r.substituteTeacher)
-                      .length
+                    l.substituteRequests.filter(
+                      (r) =>
+                        [
+                          "accepted",
+                          "hod_approved",
+                          "principal_approved",
+                        ].includes(r.status) && r.substituteTeacher,
+                    ).length
                   }
                   max={l.substituteRequests.length || 1}
                 />
@@ -199,8 +224,10 @@ export default function Leave({
                           <td>{className(r.className)}</td>
                           <td>{r.subject}</td>
                           <td>
-                            {r.substituteTeacher?.name ||
-                              "Waiting for acceptance"}
+                            {r.status === "cancelled"
+                              ? "Cancelled"
+                              : r.substituteTeacher?.name ||
+                                "Waiting for acceptance"}
                           </td>
                         </tr>
                       ))}
@@ -272,7 +299,7 @@ export default function Leave({
                     }
                     onDone={refresh}
                   >
-                    Decline
+                    Decline for this teacher
                   </Action>
                 </div>
               )}
@@ -305,8 +332,12 @@ export default function Leave({
     </>
   );
 }
-function Review({ user }) {
+function Review({ user, onChanged }) {
   const { data, error, refresh } = useData("/leaves/all");
+  const updated = () => {
+    refresh();
+    onChanged?.();
+  };
   return (
     <>
       <Alert>{error}</Alert>
@@ -322,8 +353,34 @@ function Review({ user }) {
               {label(l.leaveType)}
             </p>
             <p>{l.reason}</p>
+            {l.rejectionReason && <Alert>Rejected: {l.rejectionReason}</Alert>}
+            {l.teacher?._id !== user._id &&
+              ["coverage_pending", "substitute_confirmed"].includes(
+                l.status,
+              ) && (
+                <Action
+                  className="button secondary"
+                  run={async () => {
+                    const reason = window.prompt(
+                      "Reason for rejecting this leave appeal and cancelling all its coverage requests",
+                    );
+                    if (reason?.trim())
+                      await api.patch(`/leaves/${l._id}/reject`, { reason });
+                  }}
+                  onDone={updated}
+                >
+                  Reject leave appeal
+                </Action>
+              )}
             <p className="muted">
-              {l.substituteRequests.length} covered periods
+              {
+                l.substituteRequests.filter((r) =>
+                  ["accepted", "hod_approved", "principal_approved"].includes(
+                    r.status,
+                  ),
+                ).length
+              }{" "}
+              / {l.substituteRequests.length} periods covered
             </p>
             {l.teacher?._id !== user._id &&
               (user.role === "hod"
@@ -334,7 +391,7 @@ function Review({ user }) {
                 <div className="inline-actions">
                   <Action
                     run={() => api.patch(`/leaves/${l._id}/approve`, {})}
-                    onDone={refresh}
+                    onDone={updated}
                   >
                     Approve application
                   </Action>
@@ -345,7 +402,7 @@ function Review({ user }) {
                       if (reason)
                         await api.patch(`/leaves/${l._id}/reject`, { reason });
                     }}
-                    onDone={refresh}
+                    onDone={updated}
                   >
                     Reject
                   </Action>
@@ -387,7 +444,9 @@ export function ManagedLeave({ user }) {
         <p>
           Choose the staff member whose records you want to manage. To assign
           substitute coverage, select the substitute teacher and open their
-          Substitute requests tab.
+          Substitute requests tab. Declining for one teacher leaves the appeal
+          open for others. Use Reject leave appeal below to close the entire
+          application.
         </p>
         <Select
           label="Staff member"
@@ -407,6 +466,7 @@ export function ManagedLeave({ user }) {
       {target && (
         <Leave
           key={target._id}
+          revision={revision}
           user={target}
           teacherId={target._id}
           readOnly={false}
@@ -419,7 +479,11 @@ export function ManagedLeave({ user }) {
           HOD review comes first, followed by Principal review. Admins can
           process either stage. Self-approval is blocked.
         </p>
-        <Review key={`${selected}-${revision}`} user={user} />
+        <Review
+          key={`${selected}-${revision}`}
+          user={user}
+          onChanged={() => setRevision((v) => v + 1)}
+        />
       </section>
     </>
   );

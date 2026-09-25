@@ -12,6 +12,9 @@ const { transaction, transactional } = require("../lib/transaction");
 const source = require("../services/timetableSource");
 const W = require("../../leave-management/backend/services/leaveWorkflow");
 const C = require("../../timetable/server/controllers/timetableController");
+const {
+  assertScheduleChangeAllowed,
+} = require("../services/scheduleDependencies");
 W.configure({ timetableSource: source, transaction });
 const manage = authorize(...managers);
 const scheduling = authorize(...managers, "hod");
@@ -252,19 +255,10 @@ router.delete(
   "/timetable/:sectionId",
   scheduling,
   transactional(async (req, res) => {
-    if (
-      await Leave.exists({
-        status: { $in: W.ACTIVE },
-        endDate: { $gte: new Date(new Date().toISOString().slice(0, 10)) },
-      })
-    )
-      fail(
-        "Current or future leave workflows depend on the saved schedule.",
-        409,
-      );
     const section = await Section.findById(req.params.sectionId);
     if (!section) fail("Section not found.", 404);
     scope(req, section.departmentId);
+    await assertScheduleChangeAllowed(section._id);
     await Timetable.deleteOne({ sectionId: req.params.sectionId });
     res.json({
       message: "Saved timetable removed. You can now edit its catalogue.",
@@ -333,17 +327,11 @@ for (const [path, fn] of [
         fail(
           "Link every scheduling teacher to a staff account in People before generating.",
         );
-      if (
-        ["save", "save-edited"].includes(path) &&
-        (await Leave.exists({
-          status: { $in: W.ACTIVE },
-          endDate: { $gte: new Date(new Date().toISOString().slice(0, 10)) },
-        }))
-      )
-        fail(
-          "A current or future leave workflow exists. Timetable changes are locked to preserve substitute coverage.",
-          409,
-        );
+      if (["save", "save-edited"].includes(path))
+        await assertScheduleChangeAllowed(section._id, {
+          grid: req.body.grid,
+          workingPeriod: req.body.workingPeriod,
+        });
       await C[fn](req, res);
     }),
   );

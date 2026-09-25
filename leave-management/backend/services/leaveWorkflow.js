@@ -176,6 +176,10 @@ async function reject(leaveId, actor, reason) {
     if (!leave) fail('Leave not found.', 404);
     await lock(session, [leave.teacher]);
     const allowed = actor.role === 'hod' ? ['submitted'] : ['hod_approved'];
+    // Management can close an unsubmitted appeal that cannot obtain coverage.
+    // Keep ordered review rules for submitted applications and final approvals.
+    if (integratedTransaction && ['hod', 'principal', 'admin', 'super_admin'].includes(actor.role))
+      allowed.push('coverage_pending', 'substitute_confirmed');
     if (!allowed.includes(leave.status)) fail('Leave is not at your review stage.', 409);
     if (typeof reason !== 'string' || !reason.trim()) fail('Rejection reason is required.');
     const updated = await Leave.findOneAndUpdate({ _id: leaveId, status: leave.status }, { $set: { status: 'rejected', rejectedAt: new Date(), rejectedBy: actor._id, rejectionReason: reason.trim() } }, { new: true, session });

@@ -776,3 +776,244 @@ test("archive revokes access and deletion preserves linked campus history", asyn
     200,
   );
 });
+
+test("unrelated departments and sections save alongside existing timetables during active leave", async () => {
+  const Subject = require("../../../timetable/server/models/Subject");
+  const beforeTables = await Timetable.find().lean();
+  const teacher = await User.create({
+    name: "Independent teacher",
+    email: "independent@test.invalid",
+    password: "unused",
+    role: "teacher",
+    status: "ACTIVE",
+    departmentId: departments.ece._id,
+  });
+  const profile = await Teacher.create({
+    name: teacher.name,
+    teacherId: "independent",
+    userId: teacher._id,
+  });
+  for (const n of [1, 2]) {
+    const extra = await Section.create({
+      name: `ECE new ${n}`,
+      classroom: `independent-${n}`,
+      semester: 1,
+      departmentId: departments.ece._id,
+    });
+    await Subject.create({
+      name: `Electronics ${n}`,
+      code: `ECNEW${n}`,
+      type: "theory",
+      weeklySlots: 2,
+      allowedTeachers: [profile._id],
+      sectionId: extra._id,
+    });
+    const payload = {
+      sectionId: String(extra._id),
+      workingPeriod: { startDate: day, endDate: day.slice(0, 4) + "-12-31" },
+      variationSeed: 23,
+      roomPool: [],
+    };
+    const preview = await agents.otherHod
+      .post("/api/timetable/generate")
+      .send(payload);
+    assert.equal(preview.status, 200, preview.text);
+    const saved = await agents.otherHod
+      .post("/api/timetable/save")
+      .send({ ...payload, grid: preview.body.timetable.grid });
+    assert.equal(saved.status, 200, saved.text);
+    const edited = await agents.otherHod
+      .post("/api/timetable/save-edited")
+      .send({ ...payload, grid: saved.body.timetable.grid });
+    assert.equal(edited.status, 200, edited.text);
+  }
+  assert.equal(await Timetable.countDocuments(), beforeTables.length + 2);
+  for (const original of beforeTables)
+    assert.deepEqual(await Timetable.findById(original._id).lean(), original);
+});
+
+test("schedule dependency locks include absent staff, substitutes and old schedules but exclude nonoverlapping dates", async () => {
+  const {
+    assertScheduleChangeAllowed,
+  } = require("../../services/scheduleDependencies");
+  const arbitrarySection = new mongoose.Types.ObjectId();
+  const grid = Array.from({ length: 6 }, () => Array(9).fill(null));
+  const assignment =
+    await require("../../../leave-management/backend/models/SubstituteRequest").findById(
+      requestIds[0],
+    );
+  const substitute = await Teacher.findOne({
+    userId: assignment.substituteTeacher,
+  });
+  for (const profile of [teacherProfiles.teacher, substitute]) {
+    grid[0][0] = { teacherId: String(profile._id) };
+    await assert.rejects(
+      () =>
+        assertScheduleChangeAllowed(arbitrarySection, {
+          grid,
+          workingPeriod: { startDate: day, endDate: day },
+        }),
+      /overlapping active leave/,
+    );
+  }
+  // An empty replacement cannot bypass dependencies on the existing grid.
+  await assert.rejects(
+    () =>
+      assertScheduleChangeAllowed(section._id, {
+        grid: [],
+        workingPeriod: { startDate: "2035-01-01", endDate: "2035-12-31" },
+      }),
+    /overlapping active leave/,
+  );
+  await assertScheduleChangeAllowed(arbitrarySection, {
+    grid,
+    workingPeriod: { startDate: "2035-01-01", endDate: "2035-12-31" },
+  });
+});
+
+test("management can reject a pending coverage appeal; personal decline does not reject everyone", async () => {
+  const Leave = require("../../../leave-management/backend/models/Leave");
+  const Request = require("../../../leave-management/backend/models/SubstituteRequest");
+  const next = new Date(day);
+  next.setUTCDate(next.getUTCDate() + 7);
+  const date = next.toISOString().slice(0, 10);
+  const created = await agents.admin.post("/api/substitutes/request").send({
+    teacherId: String(users.teacher._id),
+    startDate: date,
+    endDate: date,
+    leaveType: "casual",
+  });
+  assert.equal(created.status, 201, created.text);
+  const id = created.body.leave._id;
+  const rid = created.body.requests[0]._id;
+  assert.equal(
+    (
+      await agents.admin
+        .patch(`/api/substitutes/${rid}/decline`)
+        .send({ teacherId: String(users.sub1._id) })
+    ).status,
+    200,
+  );
+  assert.equal((await Leave.findById(id)).status, "coverage_pending");
+  assert.equal(
+    (
+      await agents.otherHod
+        .patch(`/api/leaves/${id}/reject`)
+        .send({ reason: "Wrong scope" })
+    ).status,
+    403,
+  );
+  assert.equal(
+    (
+      await agents.teacher
+        .patch(`/api/leaves/${id}/reject`)
+        .send({ reason: "No authority" })
+    ).status,
+    403,
+  );
+  assert.equal(
+    (await agents.hod.patch(`/api/leaves/${id}/reject`).send({ reason: "" }))
+      .status,
+    400,
+  );
+  const rejected = await agents.hod
+    .patch(`/api/leaves/${id}/reject`)
+    .send({ reason: "Appeal withdrawn before submission" });
+  assert.equal(rejected.status, 200, rejected.text);
+  assert.equal((await Leave.findById(id)).status, "rejected");
+  assert.equal(
+    await Request.countDocuments({ leave: id, status: "cancelled" }),
+    created.body.requests.length,
+  );
+  assert.ok(
+    (await agents.teacher.get("/api/leaves/my")).body.some(
+      (l) => l._id === id && l.status === "rejected",
+    ),
+  );
+  assert.ok(
+    (await agents.admin.get("/api/leaves/all")).body.some(
+      (l) =>
+        l._id === id &&
+        l.rejectionReason === "Appeal withdrawn before submission",
+    ),
+  );
+  assert.equal(
+    (
+      await agents.admin
+        .patch(`/api/substitutes/${rid}/accept`)
+        .send({ teacherId: String(users.sub2._id) })
+    ).status,
+    409,
+  );
+  assert.equal(
+    (
+      await agents.admin
+        .patch(`/api/leaves/${leaveId}/reject`)
+        .send({ reason: "Cannot reverse final approval" })
+    ).status,
+    409,
+  );
+  const grid = Array.from({ length: 6 }, () => Array(9).fill(null));
+  grid[0][0] = { teacherId: String(teacherProfiles.teacher._id) };
+  await require("../../services/scheduleDependencies").assertScheduleChangeAllowed(
+    new mongoose.Types.ObjectId(),
+    { grid, workingPeriod: { startDate: date, endDate: date } },
+  );
+});
+
+test("submitted rejection cancels accepted assignments, keeps history and releases substitute slots", async () => {
+  const Request = require("../../../leave-management/backend/models/SubstituteRequest");
+  const next = new Date(day);
+  next.setUTCDate(next.getUTCDate() + 14);
+  const date = next.toISOString().slice(0, 10);
+  const created = await agents.admin.post("/api/substitutes/request").send({
+    teacherId: String(users.teacher._id),
+    startDate: date,
+    endDate: date,
+    leaveType: "casual",
+  });
+  assert.equal(created.status, 201, created.text);
+  const id = created.body.leave._id;
+  for (const r of created.body.requests) {
+    const accepted = await agents.admin
+      .patch(`/api/substitutes/${r._id}/accept`)
+      .send({ teacherId: String(users.sub1._id) });
+    assert.equal(accepted.status, 200, accepted.text);
+  }
+  assert.equal(
+    (
+      await agents.admin.patch(`/api/leaves/${id}/details`).send({
+        teacherId: String(users.teacher._id),
+        reason: "Personal leave",
+      })
+    ).status,
+    200,
+  );
+  assert.equal(
+    (
+      await agents.principal
+        .patch(`/api/leaves/${id}/reject`)
+        .send({ reason: "Out of order" })
+    ).status,
+    409,
+  );
+  assert.equal(
+    (
+      await agents.hod
+        .patch(`/api/leaves/${id}/reject`)
+        .send({ reason: "Not approved" })
+    ).status,
+    200,
+  );
+  assert.equal(
+    await Request.countDocuments({ leave: id, status: "cancelled" }),
+    created.body.requests.length,
+  );
+  const covers = await agents.sub1.get("/api/substitutes/accepted");
+  assert.ok(!covers.body.some((r) => r.leave === id));
+  assert.ok(
+    !(await agents.admin.get("/api/leaves/review")).body.some(
+      (l) => l._id === id,
+    ),
+  );
+});
